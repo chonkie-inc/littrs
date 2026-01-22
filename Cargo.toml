@@ -2,12 +2,14 @@
 resolver = "2"
 members = [
     "crates/litter",
+    "crates/litter-macros",
     "crates/litter-wasm",
 ]
 
 # Exclude litter-wasm from default build - it requires wasm32-wasip1 target
 default-members = [
     "crates/litter",
+    "crates/litter-macros",
 ]
 
 [workspace.package]
@@ -19,6 +21,7 @@ repository = "https://github.com/chonkie-inc/litter"
 [workspace.dependencies]
 # Internal crates
 litter = { path = "crates/litter" }
+litter-macros = { path = "crates/litter-macros" }
 litter-wasm = { path = "crates/litter-wasm" }
 
 # External dependencies

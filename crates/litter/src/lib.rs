@@ -70,6 +70,7 @@
 mod error;
 mod eval;
 mod sandbox;
+mod tool;
 mod value;
 
 #[cfg(feature = "wasm")]
@@ -79,7 +80,12 @@ mod wasm_sandbox;
 
 pub use error::{Error, Result};
 pub use sandbox::Sandbox;
-pub use value::PyValue;
+pub use tool::{ArgInfo, ToolCallError, ToolInfo};
+pub use value::{FromPyValue, PyValue, TypeError};
+
+// Re-export the macro when the macros feature is enabled
+#[cfg(feature = "macros")]
+pub use litter_macros::tool;
 
 #[cfg(feature = "wasm")]
 pub use wasm_error::{Error as WasmError, Result as WasmResult};

@@ -1,4 +1,55 @@
+use std::collections::HashMap;
 use std::fmt;
+
+/// Error when converting a PyValue to a Rust type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeError {
+    /// The expected Python type name
+    pub expected: &'static str,
+    /// The actual Python type name
+    pub got: &'static str,
+}
+
+impl TypeError {
+    pub fn new(expected: &'static str, got: &'static str) -> Self {
+        Self { expected, got }
+    }
+}
+
+impl fmt::Display for TypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "expected {}, got {}", self.expected, self.got)
+    }
+}
+
+impl std::error::Error for TypeError {}
+
+/// Trait for converting a PyValue to a Rust type.
+///
+/// This is used by the tool macro to validate and convert arguments
+/// from Python to Rust with proper error messages.
+///
+/// # Example
+///
+/// ```
+/// use litter::{PyValue, FromPyValue};
+///
+/// let value = PyValue::Str("hello".to_string());
+/// let s: String = String::from_py_value(&value).unwrap();
+/// assert_eq!(s, "hello");
+///
+/// let value = PyValue::Int(42);
+/// let err = String::from_py_value(&value).unwrap_err();
+/// assert_eq!(err.expected, "str");
+/// assert_eq!(err.got, "int");
+/// ```
+pub trait FromPyValue: Sized {
+    /// Convert a PyValue to this type.
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError>;
+
+    /// The Python type name expected by this type (for error messages).
+    fn expected_type() -> &'static str;
+}
 
 /// Represents a Python value in the sandbox.
 #[derive(Debug, Clone, PartialEq)]
@@ -147,5 +198,269 @@ impl From<&str> for PyValue {
 impl<T: Into<PyValue>> From<Vec<T>> for PyValue {
     fn from(v: Vec<T>) -> Self {
         PyValue::List(v.into_iter().map(Into::into).collect())
+    }
+}
+
+// ============================================================================
+// FromPyValue implementations
+// ============================================================================
+
+impl FromPyValue for PyValue {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        Ok(value.clone())
+    }
+
+    fn expected_type() -> &'static str {
+        "any"
+    }
+}
+
+impl FromPyValue for String {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Str(s) => Ok(s.clone()),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "str"
+    }
+}
+
+impl FromPyValue for i64 {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Int(i) => Ok(*i),
+            // Python treats bools as ints
+            PyValue::Bool(b) => Ok(if *b { 1 } else { 0 }),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "int"
+    }
+}
+
+impl FromPyValue for i32 {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Int(i) => Ok(*i as i32),
+            PyValue::Bool(b) => Ok(if *b { 1 } else { 0 }),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "int"
+    }
+}
+
+impl FromPyValue for f64 {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Float(f) => Ok(*f),
+            // Python allows int -> float coercion
+            PyValue::Int(i) => Ok(*i as f64),
+            PyValue::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "float"
+    }
+}
+
+impl FromPyValue for f32 {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Float(f) => Ok(*f as f32),
+            PyValue::Int(i) => Ok(*i as f32),
+            PyValue::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "float"
+    }
+}
+
+impl FromPyValue for bool {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Bool(b) => Ok(*b),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "bool"
+    }
+}
+
+impl<T: FromPyValue> FromPyValue for Option<T> {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::None => Ok(None),
+            other => T::from_py_value(other).map(Some),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        // This is a simplification; ideally we'd say "T | None"
+        "optional"
+    }
+}
+
+impl<T: FromPyValue> FromPyValue for Vec<T> {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::List(items) => items.iter().map(T::from_py_value).collect(),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "list"
+    }
+}
+
+impl<V: FromPyValue> FromPyValue for HashMap<String, V> {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::Dict(pairs) => {
+                let mut map = HashMap::new();
+                for (k, v) in pairs {
+                    map.insert(k.clone(), V::from_py_value(v)?);
+                }
+                Ok(map)
+            }
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "dict"
+    }
+}
+
+// ============================================================================
+// Unit type for functions that return nothing
+// ============================================================================
+
+impl FromPyValue for () {
+    fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
+        match value {
+            PyValue::None => Ok(()),
+            other => Err(TypeError::new(Self::expected_type(), other.type_name())),
+        }
+    }
+
+    fn expected_type() -> &'static str {
+        "None"
+    }
+}
+
+impl From<()> for PyValue {
+    fn from(_: ()) -> Self {
+        PyValue::None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_string_from_py_value() {
+        let value = PyValue::Str("hello".to_string());
+        assert_eq!(String::from_py_value(&value).unwrap(), "hello");
+
+        let value = PyValue::Int(42);
+        let err = String::from_py_value(&value).unwrap_err();
+        assert_eq!(err.expected, "str");
+        assert_eq!(err.got, "int");
+    }
+
+    #[test]
+    fn test_int_from_py_value() {
+        assert_eq!(i64::from_py_value(&PyValue::Int(42)).unwrap(), 42);
+        assert_eq!(i64::from_py_value(&PyValue::Bool(true)).unwrap(), 1);
+        assert_eq!(i64::from_py_value(&PyValue::Bool(false)).unwrap(), 0);
+
+        let err = i64::from_py_value(&PyValue::Str("42".into())).unwrap_err();
+        assert_eq!(err.expected, "int");
+        assert_eq!(err.got, "str");
+    }
+
+    #[test]
+    fn test_float_from_py_value() {
+        assert_eq!(f64::from_py_value(&PyValue::Float(3.14)).unwrap(), 3.14);
+        assert_eq!(f64::from_py_value(&PyValue::Int(42)).unwrap(), 42.0);
+        assert_eq!(f64::from_py_value(&PyValue::Bool(true)).unwrap(), 1.0);
+
+        let err = f64::from_py_value(&PyValue::Str("3.14".into())).unwrap_err();
+        assert_eq!(err.expected, "float");
+    }
+
+    #[test]
+    fn test_bool_from_py_value() {
+        assert!(bool::from_py_value(&PyValue::Bool(true)).unwrap());
+        assert!(!bool::from_py_value(&PyValue::Bool(false)).unwrap());
+
+        // bool doesn't coerce from int (unlike Python)
+        let err = bool::from_py_value(&PyValue::Int(1)).unwrap_err();
+        assert_eq!(err.expected, "bool");
+    }
+
+    #[test]
+    fn test_option_from_py_value() {
+        let none: Option<String> = Option::from_py_value(&PyValue::None).unwrap();
+        assert_eq!(none, None);
+
+        let some: Option<String> =
+            Option::from_py_value(&PyValue::Str("hello".into())).unwrap();
+        assert_eq!(some, Some("hello".to_string()));
+
+        // Type error propagates
+        let err = Option::<String>::from_py_value(&PyValue::Int(42)).unwrap_err();
+        assert_eq!(err.expected, "str");
+    }
+
+    #[test]
+    fn test_vec_from_py_value() {
+        let list = PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(3),
+        ]);
+        let vec: Vec<i64> = Vec::from_py_value(&list).unwrap();
+        assert_eq!(vec, vec![1, 2, 3]);
+
+        // Error on wrong inner type
+        let list = PyValue::List(vec![PyValue::Int(1), PyValue::Str("two".into())]);
+        let err = Vec::<i64>::from_py_value(&list).unwrap_err();
+        assert_eq!(err.expected, "int");
+        assert_eq!(err.got, "str");
+    }
+
+    #[test]
+    fn test_hashmap_from_py_value() {
+        let dict = PyValue::Dict(vec![
+            ("a".to_string(), PyValue::Int(1)),
+            ("b".to_string(), PyValue::Int(2)),
+        ]);
+        let map: HashMap<String, i64> = HashMap::from_py_value(&dict).unwrap();
+        assert_eq!(map.get("a"), Some(&1));
+        assert_eq!(map.get("b"), Some(&2));
+    }
+
+    #[test]
+    fn test_type_error_display() {
+        let err = TypeError::new("str", "int");
+        assert_eq!(err.to_string(), "expected str, got int");
     }
 }

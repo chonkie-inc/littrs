@@ -1071,6 +1071,7 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 name = "litter"
 version = "0.1.0"
 dependencies = [
+ "litter-macros",
  "pretty_assertions",
  "rustpython-parser",
  "serde",
@@ -1078,6 +1079,15 @@ dependencies = [
  "thiserror 2.0.18",
  "wasmtime",
  "wasmtime-wasi",
+]
+
+[[package]]
+name = "litter-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
