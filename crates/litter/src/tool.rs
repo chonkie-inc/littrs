@@ -58,6 +58,30 @@ impl fmt::Display for ToolCallError {
 
 impl std::error::Error for ToolCallError {}
 
+/// Trait for tools that can be registered with a sandbox.
+///
+/// This trait is automatically implemented by the `#[tool]` macro.
+/// It provides a unified interface for registering tools ergonomically.
+///
+/// # Example
+///
+/// ```ignore
+/// use litter::{Sandbox, tool};
+///
+/// #[tool(description = "Add two numbers.")]
+/// fn add(a: i64, b: i64) -> i64 { a + b }
+///
+/// let mut sandbox = Sandbox::new();
+/// sandbox.register(add);  // Ergonomic registration
+/// ```
+pub trait Tool {
+    /// Get the tool's metadata.
+    fn info() -> &'static ToolInfo;
+
+    /// Call the tool with the given arguments.
+    fn call(args: Vec<crate::PyValue>) -> crate::PyValue;
+}
+
 /// Information about a tool's argument.
 #[derive(Debug, Clone)]
 pub struct ArgInfo {

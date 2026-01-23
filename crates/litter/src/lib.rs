@@ -54,7 +54,7 @@
 //! ## Built-in Functions
 //! - `len()`, `str()`, `int()`, `float()`, `bool()`, `list()`
 //! - `range()`, `abs()`, `min()`, `max()`, `sum()`
-//! - `print()` (no-op in sandbox)
+//! - `print()` (output captured via `execute_with_output()`)
 //!
 //! # Not Supported
 //!
@@ -67,8 +67,11 @@
 //! - File I/O
 //! - Any standard library
 
+mod builtins;
+mod diagnostic;
 mod error;
 mod eval;
+mod operators;
 mod sandbox;
 mod tool;
 mod value;
@@ -78,9 +81,10 @@ mod wasm_error;
 #[cfg(feature = "wasm")]
 mod wasm_sandbox;
 
+pub use diagnostic::{Diagnostic, FunctionCallDiagnostic, Label, Span};
 pub use error::{Error, Result};
-pub use sandbox::Sandbox;
-pub use tool::{ArgInfo, ToolCallError, ToolInfo};
+pub use sandbox::{ExecuteOutput, Sandbox};
+pub use tool::{ArgInfo, Tool, ToolCallError, ToolInfo};
 pub use value::{FromPyValue, PyValue, TypeError};
 
 // Re-export the macro when the macros feature is enabled

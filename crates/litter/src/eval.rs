@@ -1,23 +1,47 @@
+//! CodeAct-style Python evaluator.
+//!
+//! This module contains the core evaluator that executes Python AST nodes
+//! in a sandboxed environment with registered tools.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use rustpython_parser::ast::{
-    BoolOp, CmpOp, Constant, Expr, Operator, Stmt, UnaryOp,
+    BoolOp, Constant, Expr, Stmt, UnaryOp,
 };
+use rustpython_parser::ast::Ranged;
 use rustpython_parser::{parse, Mode};
 
+use crate::builtins::{try_builtin, BuiltinResult};
+use crate::diagnostic::{Diagnostic, Span};
 use crate::error::{Error, Result};
+use crate::operators::{apply_binop, apply_cmpop};
+use crate::tool::ToolInfo;
 use crate::value::PyValue;
 
 /// A registered tool function that can be called from Python code.
 pub type ToolFn = Arc<dyn Fn(Vec<PyValue>) -> PyValue + Send + Sync>;
 
+/// A registered tool with its function and argument names.
+#[derive(Clone)]
+struct RegisteredTool {
+    func: ToolFn,
+    /// Argument names for keyword argument support
+    arg_names: Vec<String>,
+    /// Optional tool info for type validation and diagnostics
+    info: Option<ToolInfo>,
+}
+
 /// The evaluator that executes Python AST nodes.
 pub struct Evaluator {
     /// Variable bindings in the current scope.
     variables: HashMap<String, PyValue>,
-    /// Registered tool functions.
-    tools: HashMap<String, ToolFn>,
+    /// Registered tool functions with their argument names.
+    tools: HashMap<String, RegisteredTool>,
+    /// Buffer for print() output.
+    print_buffer: Vec<String>,
+    /// Current source code being executed (for diagnostics).
+    current_source: String,
 }
 
 impl Evaluator {
@@ -25,11 +49,50 @@ impl Evaluator {
         Self {
             variables: HashMap::new(),
             tools: HashMap::new(),
+            print_buffer: Vec::new(),
+            current_source: String::new(),
         }
     }
 
+    /// Take and clear the print buffer, returning all captured print output.
+    pub fn take_print_output(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.print_buffer)
+    }
+
+    /// Get the print buffer contents without clearing.
+    #[allow(dead_code)]
+    pub fn print_output(&self) -> &[String] {
+        &self.print_buffer
+    }
+
+    /// Clear the print buffer.
+    pub fn clear_print_buffer(&mut self) {
+        self.print_buffer.clear();
+    }
+
+    /// Register a tool without argument names (positional only).
     pub fn register_tool(&mut self, name: impl Into<String>, f: ToolFn) {
-        self.tools.insert(name.into(), f);
+        self.tools.insert(
+            name.into(),
+            RegisteredTool {
+                func: f,
+                arg_names: Vec::new(),
+                info: None,
+            },
+        );
+    }
+
+    /// Register a tool with full info for type validation and diagnostics.
+    pub fn register_tool_with_info(&mut self, info: ToolInfo, f: ToolFn) {
+        let arg_names: Vec<String> = info.args.iter().map(|a| a.name.clone()).collect();
+        self.tools.insert(
+            info.name.clone(),
+            RegisteredTool {
+                func: f,
+                arg_names,
+                info: Some(info),
+            },
+        );
     }
 
     pub fn set_variable(&mut self, name: impl Into<String>, value: PyValue) {
@@ -37,6 +100,9 @@ impl Evaluator {
     }
 
     pub fn execute(&mut self, code: &str) -> Result<PyValue> {
+        // Store source for diagnostics
+        self.current_source = code.to_string();
+
         let ast = parse(code, Mode::Module, "<sandbox>")
             .map_err(|e| Error::Parse(e.to_string()))?;
 
@@ -66,7 +132,7 @@ impl Evaluator {
             Stmt::AugAssign(aug) => {
                 let current = self.eval_expr(&aug.target)?;
                 let right = self.eval_expr(&aug.value)?;
-                let result = self.apply_binop(&aug.op, &current, &right)?;
+                let result = apply_binop(&aug.op, &current, &right)?;
                 self.assign_target(&aug.target, result)?;
                 Ok(PyValue::None)
             }
@@ -239,7 +305,7 @@ impl Evaluator {
             Expr::BinOp(binop) => {
                 let left = self.eval_expr(&binop.left)?;
                 let right = self.eval_expr(&binop.right)?;
-                self.apply_binop(&binop.op, &left, &right)
+                apply_binop(&binop.op, &left, &right)
             }
 
             Expr::UnaryOp(unary) => {
@@ -271,34 +337,32 @@ impl Evaluator {
                 }
             }
 
-            Expr::BoolOp(boolop) => {
-                match boolop.op {
-                    BoolOp::And => {
-                        for value in &boolop.values {
-                            let v = self.eval_expr(value)?;
-                            if !v.is_truthy() {
-                                return Ok(v);
-                            }
+            Expr::BoolOp(boolop) => match boolop.op {
+                BoolOp::And => {
+                    for value in &boolop.values {
+                        let v = self.eval_expr(value)?;
+                        if !v.is_truthy() {
+                            return Ok(v);
                         }
-                        self.eval_expr(boolop.values.last().unwrap())
                     }
-                    BoolOp::Or => {
-                        for value in &boolop.values {
-                            let v = self.eval_expr(value)?;
-                            if v.is_truthy() {
-                                return Ok(v);
-                            }
-                        }
-                        self.eval_expr(boolop.values.last().unwrap())
-                    }
+                    self.eval_expr(boolop.values.last().unwrap())
                 }
-            }
+                BoolOp::Or => {
+                    for value in &boolop.values {
+                        let v = self.eval_expr(value)?;
+                        if v.is_truthy() {
+                            return Ok(v);
+                        }
+                    }
+                    self.eval_expr(boolop.values.last().unwrap())
+                }
+            },
 
             Expr::Compare(cmp) => {
                 let mut left = self.eval_expr(&cmp.left)?;
                 for (op, right_expr) in cmp.ops.iter().zip(cmp.comparators.iter()) {
                     let right = self.eval_expr(right_expr)?;
-                    let result = self.apply_cmpop(op, &left, &right)?;
+                    let result = apply_cmpop(op, &left, &right)?;
                     if !result {
                         return Ok(PyValue::Bool(false));
                     }
@@ -316,308 +380,7 @@ impl Evaluator {
                 }
             }
 
-            Expr::Call(call) => {
-                // Get function name
-                let func_name = match call.func.as_ref() {
-                    Expr::Name(name) => name.id.to_string(),
-                    _ => {
-                        return Err(Error::Unsupported(
-                            "Only named function calls supported".to_string(),
-                        ))
-                    }
-                };
-
-                // Handle builtins
-                match func_name.as_str() {
-                    "len" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("len() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        let len = match arg {
-                            PyValue::Str(s) => s.len(),
-                            PyValue::List(l) => l.len(),
-                            PyValue::Dict(d) => d.len(),
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "sized".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        };
-                        return Ok(PyValue::Int(len as i64));
-                    }
-                    "str" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("str() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        return Ok(PyValue::Str(format!("{}", arg)));
-                    }
-                    "int" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("int() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        let val = match arg {
-                            PyValue::Int(i) => i,
-                            PyValue::Float(f) => f as i64,
-                            PyValue::Bool(b) => if b { 1 } else { 0 },
-                            PyValue::Str(s) => s.parse().map_err(|_| {
-                                Error::Runtime(format!("invalid literal for int(): '{}'", s))
-                            })?,
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "number or string".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        };
-                        return Ok(PyValue::Int(val));
-                    }
-                    "float" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("float() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        let val = match arg {
-                            PyValue::Float(f) => f,
-                            PyValue::Int(i) => i as f64,
-                            PyValue::Bool(b) => if b { 1.0 } else { 0.0 },
-                            PyValue::Str(s) => s.parse().map_err(|_| {
-                                Error::Runtime(format!("invalid literal for float(): '{}'", s))
-                            })?,
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "number or string".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        };
-                        return Ok(PyValue::Float(val));
-                    }
-                    "bool" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("bool() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        return Ok(PyValue::Bool(arg.is_truthy()));
-                    }
-                    "list" => {
-                        if call.args.is_empty() {
-                            return Ok(PyValue::List(vec![]));
-                        }
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("list() takes at most 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        let items = match arg {
-                            PyValue::List(l) => l,
-                            PyValue::Str(s) => {
-                                s.chars().map(|c| PyValue::Str(c.to_string())).collect()
-                            }
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "iterable".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        };
-                        return Ok(PyValue::List(items));
-                    }
-                    "range" => {
-                        let args: Result<Vec<PyValue>> = call
-                            .args
-                            .iter()
-                            .map(|a| self.eval_expr(a))
-                            .collect();
-                        let args = args?;
-
-                        let (start, stop, step) = match args.len() {
-                            1 => (0, args[0].as_int().ok_or_else(|| Error::Type {
-                                expected: "int".to_string(),
-                                got: args[0].type_name().to_string(),
-                            })?, 1),
-                            2 => (
-                                args[0].as_int().ok_or_else(|| Error::Type {
-                                    expected: "int".to_string(),
-                                    got: args[0].type_name().to_string(),
-                                })?,
-                                args[1].as_int().ok_or_else(|| Error::Type {
-                                    expected: "int".to_string(),
-                                    got: args[1].type_name().to_string(),
-                                })?,
-                                1,
-                            ),
-                            3 => (
-                                args[0].as_int().ok_or_else(|| Error::Type {
-                                    expected: "int".to_string(),
-                                    got: args[0].type_name().to_string(),
-                                })?,
-                                args[1].as_int().ok_or_else(|| Error::Type {
-                                    expected: "int".to_string(),
-                                    got: args[1].type_name().to_string(),
-                                })?,
-                                args[2].as_int().ok_or_else(|| Error::Type {
-                                    expected: "int".to_string(),
-                                    got: args[2].type_name().to_string(),
-                                })?,
-                            ),
-                            _ => return Err(Error::Runtime(
-                                "range() takes 1 to 3 arguments".to_string()
-                            )),
-                        };
-
-                        if step == 0 {
-                            return Err(Error::Runtime("range() step cannot be zero".to_string()));
-                        }
-
-                        let mut items = Vec::new();
-                        let mut i = start;
-                        if step > 0 {
-                            while i < stop {
-                                items.push(PyValue::Int(i));
-                                i += step;
-                            }
-                        } else {
-                            while i > stop {
-                                items.push(PyValue::Int(i));
-                                i += step;
-                            }
-                        }
-                        return Ok(PyValue::List(items));
-                    }
-                    "print" => {
-                        let args: Result<Vec<PyValue>> = call
-                            .args
-                            .iter()
-                            .map(|a| self.eval_expr(a))
-                            .collect();
-                        let _ = args?;
-                        return Ok(PyValue::None);
-                    }
-                    "abs" => {
-                        if call.args.len() != 1 {
-                            return Err(Error::Runtime("abs() takes exactly 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        match arg {
-                            PyValue::Int(i) => return Ok(PyValue::Int(i.abs())),
-                            PyValue::Float(f) => return Ok(PyValue::Float(f.abs())),
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "number".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        }
-                    }
-                    "min" => {
-                        if call.args.is_empty() {
-                            return Err(Error::Runtime("min() requires at least 1 argument".to_string()));
-                        }
-                        let args: Result<Vec<PyValue>> = call
-                            .args
-                            .iter()
-                            .map(|a| self.eval_expr(a))
-                            .collect();
-                        let args = args?;
-
-                        if args.len() == 1 {
-                            if let PyValue::List(items) = &args[0] {
-                                if items.is_empty() {
-                                    return Err(Error::Runtime("min() arg is an empty sequence".to_string()));
-                                }
-                                return self.find_min(items);
-                            }
-                        }
-                        return self.find_min(&args);
-                    }
-                    "max" => {
-                        if call.args.is_empty() {
-                            return Err(Error::Runtime("max() requires at least 1 argument".to_string()));
-                        }
-                        let args: Result<Vec<PyValue>> = call
-                            .args
-                            .iter()
-                            .map(|a| self.eval_expr(a))
-                            .collect();
-                        let args = args?;
-
-                        if args.len() == 1 {
-                            if let PyValue::List(items) = &args[0] {
-                                if items.is_empty() {
-                                    return Err(Error::Runtime("max() arg is an empty sequence".to_string()));
-                                }
-                                return self.find_max(items);
-                            }
-                        }
-                        return self.find_max(&args);
-                    }
-                    "sum" => {
-                        if call.args.is_empty() {
-                            return Err(Error::Runtime("sum() requires at least 1 argument".to_string()));
-                        }
-                        let arg = self.eval_expr(&call.args[0])?;
-                        let items = match arg {
-                            PyValue::List(items) => items,
-                            _ => {
-                                return Err(Error::Type {
-                                    expected: "iterable".to_string(),
-                                    got: arg.type_name().to_string(),
-                                })
-                            }
-                        };
-
-                        let mut total = 0i64;
-                        let mut is_float = false;
-                        let mut total_float = 0.0f64;
-
-                        for item in items {
-                            match item {
-                                PyValue::Int(i) => {
-                                    if is_float {
-                                        total_float += i as f64;
-                                    } else {
-                                        total += i;
-                                    }
-                                }
-                                PyValue::Float(f) => {
-                                    if !is_float {
-                                        is_float = true;
-                                        total_float = total as f64;
-                                    }
-                                    total_float += f;
-                                }
-                                _ => {
-                                    return Err(Error::Type {
-                                        expected: "number".to_string(),
-                                        got: item.type_name().to_string(),
-                                    })
-                                }
-                            }
-                        }
-
-                        if is_float {
-                            return Ok(PyValue::Float(total_float));
-                        }
-                        return Ok(PyValue::Int(total));
-                    }
-                    _ => {}
-                }
-
-                // Check if it's a registered tool
-                if let Some(tool) = self.tools.get(&func_name).cloned() {
-                    let args: Result<Vec<PyValue>> = call
-                        .args
-                        .iter()
-                        .map(|a| self.eval_expr(a))
-                        .collect();
-                    return Ok(tool(args?));
-                }
-
-                Err(Error::NameError(func_name))
-            }
+            Expr::Call(call) => self.eval_call(call),
 
             Expr::Subscript(sub) => {
                 let value = self.eval_expr(&sub.value)?;
@@ -687,12 +450,108 @@ impl Evaluator {
         }
     }
 
+    fn eval_call(&mut self, call: &rustpython_parser::ast::ExprCall) -> Result<PyValue> {
+        // Get function name
+        let func_name = match call.func.as_ref() {
+            Expr::Name(name) => name.id.to_string(),
+            _ => {
+                return Err(Error::Unsupported(
+                    "Only named function calls supported".to_string(),
+                ))
+            }
+        };
+
+        // Evaluate arguments first
+        let args: Result<Vec<PyValue>> = call.args.iter().map(|a| self.eval_expr(a)).collect();
+        let args = args?;
+
+        // Try builtin functions first
+        match try_builtin(&func_name, args.clone(), &mut self.print_buffer) {
+            BuiltinResult::Handled(result) => return result,
+            BuiltinResult::NotBuiltin => {}
+        }
+
+        // Check if it's a registered tool
+        if let Some(tool) = self.tools.get(&func_name).cloned() {
+            return self.eval_tool_call(&func_name, &tool, call, args);
+        }
+
+        Err(Error::NameError(func_name))
+    }
+
+    fn eval_tool_call(
+        &mut self,
+        func_name: &str,
+        tool: &RegisteredTool,
+        call: &rustpython_parser::ast::ExprCall,
+        positional_args: Vec<PyValue>,
+    ) -> Result<PyValue> {
+        let mut final_args = positional_args;
+
+        // Handle keyword arguments if the tool has arg names defined
+        if !call.keywords.is_empty() && !tool.arg_names.is_empty() {
+            // Extend final_args to have enough slots for all possible args
+            let max_args = tool.arg_names.len();
+            while final_args.len() < max_args {
+                final_args.push(PyValue::None);
+            }
+
+            // Map keyword arguments to their positions
+            for kw in &call.keywords {
+                if let Some(ref arg_name) = kw.arg {
+                    let name = arg_name.as_str();
+                    if let Some(pos) = tool.arg_names.iter().position(|n| n == name) {
+                        let value = self.eval_expr(&kw.value)?;
+                        if pos < final_args.len() {
+                            final_args[pos] = value;
+                        }
+                    } else {
+                        // Build rich diagnostic for unexpected argument
+                        let kw_span = self.expr_span(&kw.value);
+                        let signature = tool.arg_names.join(", ");
+                        return Err(Error::Diagnostic(
+                            Diagnostic::new(format!(
+                                "`{}()` got an unexpected keyword argument `{}`",
+                                func_name, name
+                            ))
+                            .with_source(&self.current_source)
+                            .with_label(kw_span, "unexpected argument")
+                            .with_note(format!("function signature: {}({})", func_name, signature))
+                            .with_help(format!("valid arguments are: {}", tool.arg_names.join(", ")))
+                        ));
+                    }
+                }
+            }
+        } else if !call.keywords.is_empty() {
+            // Tool doesn't have arg names but keywords were used
+            // Just append keyword values in order (fallback behavior)
+            for kw in &call.keywords {
+                let value = self.eval_expr(&kw.value)?;
+                final_args.push(value);
+            }
+        }
+
+        // Validate argument types if tool has info
+        if let Some(ref info) = tool.info {
+            for (i, (arg, arg_info)) in final_args.iter().zip(info.args.iter()).enumerate() {
+                // Skip validation for optional arguments that are None
+                if !arg_info.required && matches!(arg, PyValue::None) {
+                    continue;
+                }
+                if let Some(err) = self.validate_arg_type(func_name, tool, call, i, arg, &arg_info.python_type) {
+                    return Err(err);
+                }
+            }
+        }
+
+        Ok((tool.func)(final_args))
+    }
+
     fn eval_constant(&self, constant: &Constant) -> Result<PyValue> {
         match constant {
             Constant::None => Ok(PyValue::None),
             Constant::Bool(b) => Ok(PyValue::Bool(*b)),
             Constant::Int(i) => {
-                // Convert BigInt to i64
                 let val: i64 = i.try_into().map_err(|_| {
                     Error::Runtime("Integer too large".to_string())
                 })?;
@@ -713,268 +572,100 @@ impl Evaluator {
         }
     }
 
-    fn apply_binop(&self, op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyValue> {
-        match op {
-            Operator::Add => match (left, right) {
-                (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(a + b)),
-                (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(a + b)),
-                (PyValue::Int(a), PyValue::Float(b)) => Ok(PyValue::Float(*a as f64 + b)),
-                (PyValue::Float(a), PyValue::Int(b)) => Ok(PyValue::Float(a + *b as f64)),
-                (PyValue::Str(a), PyValue::Str(b)) => Ok(PyValue::Str(format!("{}{}", a, b))),
-                (PyValue::List(a), PyValue::List(b)) => {
-                    let mut result = a.clone();
-                    result.extend(b.clone());
-                    Ok(PyValue::List(result))
-                }
-                _ => Err(Error::Type {
-                    expected: "compatible types for +".to_string(),
-                    got: format!("{} and {}", left.type_name(), right.type_name()),
-                }),
-            },
-            Operator::Sub => self.numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
-            Operator::Mult => match (left, right) {
-                (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(a * b)),
-                (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(a * b)),
-                (PyValue::Int(a), PyValue::Float(b)) => Ok(PyValue::Float(*a as f64 * b)),
-                (PyValue::Float(a), PyValue::Int(b)) => Ok(PyValue::Float(a * *b as f64)),
-                (PyValue::Str(s), PyValue::Int(n)) | (PyValue::Int(n), PyValue::Str(s)) => {
-                    if *n <= 0 {
-                        Ok(PyValue::Str(String::new()))
+    // === Diagnostic helpers ===
+
+    /// Get span from an expression.
+    fn expr_span(&self, expr: &Expr) -> Span {
+        let range = expr.range();
+        Span::new(range.start().to_usize(), range.end().to_usize())
+    }
+
+    /// Build a rich diagnostic for a type mismatch in a function call.
+    fn build_type_mismatch_diagnostic(
+        &self,
+        func_name: &str,
+        tool: &RegisteredTool,
+        call: &rustpython_parser::ast::ExprCall,
+        arg_index: usize,
+        expected: &str,
+        got: &str,
+        actual_value: &PyValue,
+    ) -> Diagnostic {
+        let arg_spans: Vec<Span> = call.args.iter().map(|a| self.expr_span(a)).collect();
+
+        let default_arg_name = format!("arg{}", arg_index);
+        let arg_name = tool.arg_names.get(arg_index)
+            .map(|s| s.as_str())
+            .unwrap_or(&default_arg_name);
+
+        let arg_span = arg_spans.get(arg_index).copied().unwrap_or_default();
+
+        let signature = if let Some(ref info) = tool.info {
+            info.args.iter()
+                .map(|a| {
+                    if a.required {
+                        format!("{}: {}", a.name, a.python_type)
                     } else {
-                        Ok(PyValue::Str(s.repeat(*n as usize)))
+                        format!("{}?: {}", a.name, a.python_type)
                     }
-                }
-                (PyValue::List(l), PyValue::Int(n)) | (PyValue::Int(n), PyValue::List(l)) => {
-                    if *n <= 0 {
-                        Ok(PyValue::List(vec![]))
-                    } else {
-                        let mut result = Vec::new();
-                        for _ in 0..*n {
-                            result.extend(l.clone());
-                        }
-                        Ok(PyValue::List(result))
-                    }
-                }
-                _ => Err(Error::Type {
-                    expected: "compatible types for *".to_string(),
-                    got: format!("{} and {}", left.type_name(), right.type_name()),
-                }),
-            },
-            Operator::Div => {
-                let a = left.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: left.type_name().to_string(),
-                })?;
-                let b = right.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: right.type_name().to_string(),
-                })?;
-                if b == 0.0 {
-                    Err(Error::DivisionByZero)
-                } else {
-                    Ok(PyValue::Float(a / b))
-                }
-            }
-            Operator::FloorDiv => {
-                let a = left.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: left.type_name().to_string(),
-                })?;
-                let b = right.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: right.type_name().to_string(),
-                })?;
-                if b == 0.0 {
-                    Err(Error::DivisionByZero)
-                } else {
-                    let result = (a / b).floor();
-                    if matches!(left, PyValue::Int(_)) && matches!(right, PyValue::Int(_)) {
-                        Ok(PyValue::Int(result as i64))
-                    } else {
-                        Ok(PyValue::Float(result))
-                    }
-                }
-            }
-            Operator::Mod => {
-                match (left, right) {
-                    (PyValue::Int(a), PyValue::Int(b)) => {
-                        if *b == 0 {
-                            Err(Error::DivisionByZero)
-                        } else {
-                            Ok(PyValue::Int(a % b))
-                        }
-                    }
-                    _ => {
-                        let a = left.as_float().ok_or_else(|| Error::Type {
-                            expected: "number".to_string(),
-                            got: left.type_name().to_string(),
-                        })?;
-                        let b = right.as_float().ok_or_else(|| Error::Type {
-                            expected: "number".to_string(),
-                            got: right.type_name().to_string(),
-                        })?;
-                        if b == 0.0 {
-                            Err(Error::DivisionByZero)
-                        } else {
-                            Ok(PyValue::Float(a % b))
-                        }
-                    }
-                }
-            }
-            Operator::Pow => {
-                let a = left.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: left.type_name().to_string(),
-                })?;
-                let b = right.as_float().ok_or_else(|| Error::Type {
-                    expected: "number".to_string(),
-                    got: right.type_name().to_string(),
-                })?;
-                let result = a.powf(b);
-                if matches!(left, PyValue::Int(_))
-                    && matches!(right, PyValue::Int(_))
-                    && result.fract() == 0.0
-                    && result >= i64::MIN as f64
-                    && result <= i64::MAX as f64
-                {
-                    Ok(PyValue::Int(result as i64))
-                } else {
-                    Ok(PyValue::Float(result))
-                }
-            }
-            Operator::BitOr => self.int_binop(left, right, |a, b| a | b),
-            Operator::BitXor => self.int_binop(left, right, |a, b| a ^ b),
-            Operator::BitAnd => self.int_binop(left, right, |a, b| a & b),
-            Operator::LShift => self.int_binop(left, right, |a, b| a << b),
-            Operator::RShift => self.int_binop(left, right, |a, b| a >> b),
-            _ => Err(Error::Unsupported(format!("Operator {:?}", op))),
-        }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        } else {
+            tool.arg_names.join(", ")
+        };
+
+        Diagnostic::new(format!("type mismatch in call to `{}`", func_name))
+            .with_source(&self.current_source)
+            .with_label(arg_span, format!("expected `{}`, found `{}`", expected, got))
+            .with_note(format!(
+                "parameter `{}` of `{}()` expects type `{}`",
+                arg_name, func_name, expected
+            ))
+            .with_note(format!("function signature: {}({})", func_name, signature))
+            .with_help(format!(
+                "the value `{}` has type `{}`, but `{}` is required",
+                actual_value.to_print_string(), got, expected
+            ))
     }
 
-    fn numeric_binop<F, G>(&self, left: &PyValue, right: &PyValue, int_op: F, float_op: G) -> Result<PyValue>
-    where
-        F: Fn(i64, i64) -> i64,
-        G: Fn(f64, f64) -> f64,
-    {
-        match (left, right) {
-            (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(int_op(*a, *b))),
-            (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(float_op(*a, *b))),
-            (PyValue::Int(a), PyValue::Float(b)) => Ok(PyValue::Float(float_op(*a as f64, *b))),
-            (PyValue::Float(a), PyValue::Int(b)) => Ok(PyValue::Float(float_op(*a, *b as f64))),
-            _ => Err(Error::Type {
-                expected: "numbers".to_string(),
-                got: format!("{} and {}", left.type_name(), right.type_name()),
-            }),
-        }
-    }
+    /// Validate argument type and return error diagnostic if mismatch.
+    fn validate_arg_type(
+        &self,
+        func_name: &str,
+        tool: &RegisteredTool,
+        call: &rustpython_parser::ast::ExprCall,
+        arg_index: usize,
+        value: &PyValue,
+        expected_type: &str,
+    ) -> Option<Error> {
+        let actual_type = value.type_name();
 
-    fn int_binop<F>(&self, left: &PyValue, right: &PyValue, op: F) -> Result<PyValue>
-    where
-        F: Fn(i64, i64) -> i64,
-    {
-        let a = left.as_int().ok_or_else(|| Error::Type {
-            expected: "int".to_string(),
-            got: left.type_name().to_string(),
-        })?;
-        let b = right.as_int().ok_or_else(|| Error::Type {
-            expected: "int".to_string(),
-            got: right.type_name().to_string(),
-        })?;
-        Ok(PyValue::Int(op(a, b)))
-    }
+        let is_compatible = match expected_type {
+            "any" => true,
+            "str" => matches!(value, PyValue::Str(_)),
+            "int" => matches!(value, PyValue::Int(_)),
+            "float" => matches!(value, PyValue::Float(_) | PyValue::Int(_)),
+            "bool" => matches!(value, PyValue::Bool(_)),
+            "list" => matches!(value, PyValue::List(_)),
+            "dict" => matches!(value, PyValue::Dict(_)),
+            "number" => matches!(value, PyValue::Int(_) | PyValue::Float(_)),
+            _ => true, // Unknown types pass through
+        };
 
-    fn apply_cmpop(&self, op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> {
-        match op {
-            CmpOp::Eq => Ok(left == right),
-            CmpOp::NotEq => Ok(left != right),
-            CmpOp::Lt => self.compare_values(left, right, |a, b| a < b, |a, b| a < b),
-            CmpOp::LtE => self.compare_values(left, right, |a, b| a <= b, |a, b| a <= b),
-            CmpOp::Gt => self.compare_values(left, right, |a, b| a > b, |a, b| a > b),
-            CmpOp::GtE => self.compare_values(left, right, |a, b| a >= b, |a, b| a >= b),
-            CmpOp::In => {
-                match right {
-                    PyValue::List(items) => Ok(items.contains(left)),
-                    PyValue::Str(s) => {
-                        if let PyValue::Str(needle) = left {
-                            Ok(s.contains(needle.as_str()))
-                        } else {
-                            Err(Error::Type {
-                                expected: "str".to_string(),
-                                got: left.type_name().to_string(),
-                            })
-                        }
-                    }
-                    PyValue::Dict(pairs) => {
-                        if let PyValue::Str(key) = left {
-                            Ok(pairs.iter().any(|(k, _)| k == key))
-                        } else {
-                            Err(Error::Type {
-                                expected: "str".to_string(),
-                                got: left.type_name().to_string(),
-                            })
-                        }
-                    }
-                    _ => Err(Error::Type {
-                        expected: "container".to_string(),
-                        got: right.type_name().to_string(),
-                    }),
-                }
-            }
-            CmpOp::NotIn => {
-                let in_result = self.apply_cmpop(&CmpOp::In, left, right)?;
-                Ok(!in_result)
-            }
-            CmpOp::Is => {
-                match (left, right) {
-                    (PyValue::None, PyValue::None) => Ok(true),
-                    _ => Ok(false),
-                }
-            }
-            CmpOp::IsNot => {
-                let is_result = self.apply_cmpop(&CmpOp::Is, left, right)?;
-                Ok(!is_result)
-            }
+        if !is_compatible {
+            Some(Error::Diagnostic(self.build_type_mismatch_diagnostic(
+                func_name,
+                tool,
+                call,
+                arg_index,
+                expected_type,
+                actual_type,
+                value,
+            )))
+        } else {
+            None
         }
-    }
-
-    fn compare_values<F, G>(&self, left: &PyValue, right: &PyValue, int_cmp: F, float_cmp: G) -> Result<bool>
-    where
-        F: Fn(i64, i64) -> bool,
-        G: Fn(f64, f64) -> bool,
-    {
-        match (left, right) {
-            (PyValue::Int(a), PyValue::Int(b)) => Ok(int_cmp(*a, *b)),
-            (PyValue::Float(a), PyValue::Float(b)) => Ok(float_cmp(*a, *b)),
-            (PyValue::Int(a), PyValue::Float(b)) => Ok(float_cmp(*a as f64, *b)),
-            (PyValue::Float(a), PyValue::Int(b)) => Ok(float_cmp(*a, *b as f64)),
-            (PyValue::Str(a), PyValue::Str(b)) => Ok(a.cmp(b) == std::cmp::Ordering::Less && int_cmp(0, 1)
-                || a.cmp(b) == std::cmp::Ordering::Equal && int_cmp(0, 0)
-                || a.cmp(b) == std::cmp::Ordering::Greater && int_cmp(1, 0)),
-            _ => Err(Error::Type {
-                expected: "comparable types".to_string(),
-                got: format!("{} and {}", left.type_name(), right.type_name()),
-            }),
-        }
-    }
-
-    fn find_min(&self, items: &[PyValue]) -> Result<PyValue> {
-        let mut min = items[0].clone();
-        for item in &items[1..] {
-            if self.apply_cmpop(&CmpOp::Lt, item, &min)? {
-                min = item.clone();
-            }
-        }
-        Ok(min)
-    }
-
-    fn find_max(&self, items: &[PyValue]) -> Result<PyValue> {
-        let mut max = items[0].clone();
-        for item in &items[1..] {
-            if self.apply_cmpop(&CmpOp::Gt, item, &max)? {
-                max = item.clone();
-            }
-        }
-        Ok(max)
     }
 }
 

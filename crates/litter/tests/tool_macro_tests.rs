@@ -3,18 +3,29 @@
 use litter::{PyValue, Sandbox};
 use litter_macros::tool;
 
-#[tool(description = "Add two numbers together.")]
+/// Add two numbers together.
+///
+/// Args:
+///     a: First number
+///     b: Second number
+#[tool]
 fn add(a: i64, b: i64) -> i64 {
     a + b
 }
 
-#[tool(description = "Greet a person.")]
+/// Greet a person.
+///
+/// Args:
+///     name: The person's name
+///     prefix: Optional greeting prefix
+#[tool]
 fn greet(name: String, prefix: Option<String>) -> String {
     let p = prefix.unwrap_or_else(|| "Hello".to_string());
     format!("{}, {}!", p, name)
 }
 
-#[tool(description = "Return a dict with weather info.")]
+/// Return a dict with weather info.
+#[tool]
 fn get_weather(city: String) -> PyValue {
     PyValue::Dict(vec![
         ("city".to_string(), PyValue::Str(city)),
@@ -47,10 +58,10 @@ fn test_tool_info_with_optional_arg() {
 }
 
 #[test]
-fn test_tool_info_arg_descriptions_empty_without_attrs() {
-    // Without doc attributes, descriptions are empty
-    assert_eq!(greet::INFO.args[0].description, "");
-    assert_eq!(greet::INFO.args[1].description, "");
+fn test_tool_info_arg_descriptions() {
+    // With #[arg(desc = "...")] attributes, descriptions are populated
+    assert_eq!(greet::INFO.args[0].description, "The person's name");
+    assert_eq!(greet::INFO.args[1].description, "Optional greeting prefix");
 }
 
 #[test]
@@ -144,4 +155,25 @@ fn test_describe_tools_with_macro_generated_info() {
     assert!(docs.contains("Add two numbers together."));
     assert!(docs.contains("def greet(name: str, prefix: str | None = None) -> str:"));
     assert!(docs.contains("Greet a person."));
+}
+
+#[test]
+fn test_ergonomic_registration_with_tool_struct() {
+    let mut sandbox = Sandbox::new();
+
+    // Ergonomic registration using the generated Tool struct
+    sandbox.register(add::Tool);
+    sandbox.register(greet::Tool);
+
+    // Call from Python
+    let result = sandbox.execute("add(3, 4)").unwrap();
+    assert_eq!(result, PyValue::Int(7));
+
+    let result = sandbox.execute("greet('World')").unwrap();
+    assert_eq!(result, PyValue::Str("Hello, World!".to_string()));
+
+    // Check documentation is generated
+    let docs = sandbox.describe_tools();
+    assert!(docs.contains("def add(a: int, b: int) -> int:"));
+    assert!(docs.contains("def greet(name: str, prefix: str | None = None) -> str:"));
 }

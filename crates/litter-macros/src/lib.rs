@@ -7,14 +7,15 @@
 //!
 //! ```ignore
 //! use litter_macros::tool;
+//! use litter::PyValue;
 //!
-//! #[tool(description = "Get current weather for a city.")]
-//! fn fetch_weather(
-//!     /// The city name to look up
-//!     city: String,
-//!     /// Temperature unit (celsius or fahrenheit)
-//!     unit: Option<String>,
-//! ) -> PyValue {
+//! /// Get current weather for a city.
+//! ///
+//! /// Args:
+//! ///     city: The city name to look up
+//! ///     unit: Temperature unit (celsius or fahrenheit)
+//! #[tool]
+//! fn fetch_weather(city: String, unit: Option<String>) -> PyValue {
 //!     PyValue::Dict(vec![
 //!         ("city".to_string(), PyValue::Str(city)),
 //!         ("temp".to_string(), PyValue::Int(22)),
@@ -22,20 +23,21 @@
 //! }
 //!
 //! // Register with sandbox
-//! sandbox.register_tool(fetch_weather::INFO.clone(), fetch_weather::call);
+//! sandbox.register(fetch_weather::Tool);
 //! ```
 
 use proc_macro::TokenStream;
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
+use std::collections::HashMap;
 use syn::{
-    parse_macro_input, parse::{Parse, ParseStream},
-    ItemFn, FnArg, Pat, Type, Attribute, Expr, Lit, Meta,
-    PatType, ReturnType, Token, LitStr,
+    parse::{Parse, ParseStream},
+    parse_macro_input, Attribute, Expr, FnArg, ItemFn, Lit, LitStr, Meta, Pat, PatType,
+    ReturnType, Token, Type,
 };
 
 /// Parsed arguments for the #[tool(...)] attribute
 struct ToolArgs {
-    description: String,
+    description: Option<String>,
 }
 
 impl Parse for ToolArgs {
@@ -56,11 +58,115 @@ impl Parse for ToolArgs {
             }
         }
 
-        Ok(ToolArgs {
-            description: description
-                .ok_or_else(|| input.error("missing required attribute: description"))?,
-        })
+        Ok(ToolArgs { description })
     }
+}
+
+/// Parsed documentation from doc comments
+struct ParsedDocs {
+    /// The main description (first paragraph)
+    description: String,
+    /// Argument descriptions from the Args: section
+    args: HashMap<String, String>,
+}
+
+/// Parse doc comments to extract description and argument descriptions.
+///
+/// Expected format:
+/// ```text
+/// /// Main description here.
+/// /// Can span multiple lines.
+/// ///
+/// /// Args:
+/// ///     param1: Description of param1
+/// ///     param2: Description of param2
+/// ```
+fn parse_doc_comments(attrs: &[Attribute]) -> ParsedDocs {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Extract all doc comment lines
+    for attr in attrs {
+        if attr.path().is_ident("doc") {
+            if let Meta::NameValue(meta) = &attr.meta {
+                if let Expr::Lit(expr_lit) = &meta.value {
+                    if let Lit::Str(lit_str) = &expr_lit.lit {
+                        lines.push(lit_str.value());
+                    }
+                }
+            }
+        }
+    }
+
+    let mut description_lines: Vec<String> = Vec::new();
+    let mut args: HashMap<String, String> = HashMap::new();
+    let mut in_args_section = false;
+    let mut current_arg: Option<(String, String)> = None;
+
+    for line in lines {
+        let trimmed = line.trim();
+
+        // Check for Args: section header
+        if trimmed == "Args:" || trimmed == "Arguments:" {
+            in_args_section = true;
+            // Save any pending arg
+            if let Some((name, desc)) = current_arg.take() {
+                args.insert(name, desc.trim().to_string());
+            }
+            continue;
+        }
+
+        if in_args_section {
+            // Check if this line starts a new argument (has a colon after the name)
+            if let Some(colon_pos) = trimmed.find(':') {
+                let potential_name = trimmed[..colon_pos].trim();
+                // Valid arg names are single words without spaces
+                if !potential_name.is_empty() && !potential_name.contains(' ') {
+                    // Save previous arg if any
+                    if let Some((name, desc)) = current_arg.take() {
+                        args.insert(name, desc.trim().to_string());
+                    }
+                    // Start new arg
+                    let desc = trimmed[colon_pos + 1..].trim().to_string();
+                    current_arg = Some((potential_name.to_string(), desc));
+                    continue;
+                }
+            }
+
+            // Continuation of previous arg description
+            if let Some((_, ref mut desc)) = current_arg {
+                if !trimmed.is_empty() {
+                    desc.push(' ');
+                    desc.push_str(trimmed);
+                }
+            }
+        } else {
+            // Before Args section - this is part of the description
+            if trimmed.is_empty() {
+                // Empty line might separate paragraphs, but we take the whole thing
+                if !description_lines.is_empty() {
+                    description_lines.push(String::new());
+                }
+            } else {
+                description_lines.push(trimmed.to_string());
+            }
+        }
+    }
+
+    // Save final arg if any
+    if let Some((name, desc)) = current_arg {
+        args.insert(name, desc.trim().to_string());
+    }
+
+    // Join description, collapsing multiple empty lines
+    let description = description_lines
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    ParsedDocs { description, args }
 }
 
 /// Map a Rust type to a Python type string.
@@ -76,7 +182,7 @@ fn rust_type_to_python(ty: &Type) -> String {
         "()" => "None".to_string(),
         _ if ty_str.starts_with("Option<") => {
             // Extract inner type
-            let inner = &ty_str[7..ty_str.len()-1];
+            let inner = &ty_str[7..ty_str.len() - 1];
             let inner_py = match inner {
                 "String" | "&str" => "str",
                 "i64" | "i32" | "i16" | "i8" | "isize" => "int",
@@ -88,7 +194,7 @@ fn rust_type_to_python(ty: &Type) -> String {
             inner_py.to_string()
         }
         _ if ty_str.starts_with("Vec<") => {
-            let inner = &ty_str[4..ty_str.len()-1];
+            let inner = &ty_str[4..ty_str.len() - 1];
             let inner_py = match inner {
                 "String" | "&str" => "str",
                 "i64" | "i32" | "i16" | "i8" | "isize" => "int",
@@ -99,7 +205,9 @@ fn rust_type_to_python(ty: &Type) -> String {
             };
             format!("list[{}]", inner_py)
         }
-        _ if ty_str.starts_with("HashMap<") || ty_str.starts_with("std::collections::HashMap<") => {
+        _ if ty_str.starts_with("HashMap<")
+            || ty_str.starts_with("std::collections::HashMap<") =>
+        {
             "dict".to_string()
         }
         "PyValue" => "any".to_string(),
@@ -113,30 +221,6 @@ fn is_option_type(ty: &Type) -> bool {
     ty_str.starts_with("Option<")
 }
 
-/// Extract doc comments from attributes
-fn extract_doc_comment(attrs: &[Attribute]) -> Option<String> {
-    let docs: Vec<String> = attrs
-        .iter()
-        .filter_map(|attr| {
-            if attr.path().is_ident("doc") {
-                if let Meta::NameValue(meta) = &attr.meta {
-                    if let Expr::Lit(expr_lit) = &meta.value {
-                        if let Lit::Str(lit_str) = &expr_lit.lit {
-                            return Some(lit_str.value().trim().to_string());
-                        }
-                    }
-                }
-            }
-            None
-        })
-        .collect();
-
-    if docs.is_empty() {
-        None
-    } else {
-        Some(docs.join(" "))
-    }
-}
 
 /// The `#[tool]` attribute macro for defining sandbox tools.
 ///
@@ -146,23 +230,36 @@ fn extract_doc_comment(attrs: &[Attribute]) -> Option<String> {
 /// - Error handling for type mismatches
 /// - Documentation generation for LLM system prompts
 ///
-/// # Attributes
+/// # Documentation Format
 ///
-/// - `description`: Required. A description of what the tool does.
-///
-/// # Example
+/// Use standard Rust doc comments with an optional `Args:` section:
 ///
 /// ```ignore
-/// #[tool(description = "Add two numbers together.")]
+/// /// Add two numbers together.
+/// ///
+/// /// Args:
+/// ///     a: First number
+/// ///     b: Second number
+/// #[tool]
 /// fn add(a: i64, b: i64) -> i64 {
 ///     a + b
 /// }
+/// ```
 ///
-/// // This generates:
-/// // - add::INFO: ToolInfo with the function metadata
-/// // - add::call: fn(Vec<PyValue>) -> PyValue wrapper
-/// //
-/// // Register with:
+/// # Generated Code
+///
+/// The macro generates a module containing:
+/// - `INFO`: Static `ToolInfo` with metadata
+/// - `call`: Function `fn(Vec<PyValue>) -> PyValue`
+/// - `Tool`: Unit struct implementing `litter::Tool` trait
+///
+/// # Registration
+///
+/// ```ignore
+/// // Ergonomic (using Tool struct)
+/// sandbox.register(add::Tool);
+///
+/// // Explicit
 /// sandbox.register_tool(add::INFO.clone(), add::call);
 /// ```
 #[proc_macro_attribute]
@@ -170,7 +267,13 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as ToolArgs);
     let input_fn = parse_macro_input!(item as ItemFn);
 
-    let description = args.description;
+    // Parse doc comments for description and arg descriptions
+    let parsed_docs = parse_doc_comments(&input_fn.attrs);
+
+    // Use explicit description if provided, otherwise use doc comment
+    let description = args
+        .description
+        .unwrap_or_else(|| parsed_docs.description.clone());
 
     let fn_name = &input_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
@@ -179,20 +282,23 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     // Extract arguments
     let mut arg_infos = Vec::new();
     let mut arg_names = Vec::new();
-    let mut arg_types = Vec::new();
     let mut arg_conversions = Vec::new();
 
     for (i, arg) in input_fn.sig.inputs.iter().enumerate() {
-        if let FnArg::Typed(PatType { pat, ty, attrs, .. }) = arg {
+        if let FnArg::Typed(PatType { pat, ty, .. }) = arg {
             if let Pat::Ident(pat_ident) = pat.as_ref() {
                 let arg_name = &pat_ident.ident;
                 let arg_name_str = arg_name.to_string();
                 let python_type = rust_type_to_python(ty);
                 let is_optional = is_option_type(ty);
-                let doc = extract_doc_comment(attrs).unwrap_or_default();
+                // Get arg description from parsed docs
+                let doc = parsed_docs
+                    .args
+                    .get(&arg_name_str)
+                    .cloned()
+                    .unwrap_or_default();
 
                 arg_names.push(arg_name.clone());
-                arg_types.push(ty.clone());
 
                 // Generate ToolInfo arg
                 if is_optional {
@@ -234,11 +340,26 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
         ReturnType::Type(_, ty) => rust_type_to_python(ty),
     };
 
-    // Get the original function body
+    // Get the original function body and signature (without #[arg] attributes)
     let fn_vis = &input_fn.vis;
     let fn_block = &input_fn.block;
-    let fn_inputs = &input_fn.sig.inputs;
     let fn_output = &input_fn.sig.output;
+
+    // Create function inputs for the implementation
+    let clean_inputs: Vec<_> = input_fn
+        .sig
+        .inputs
+        .iter()
+        .map(|arg| {
+            if let FnArg::Typed(pat_type) = arg {
+                let pat = &pat_type.pat;
+                let ty = &pat_type.ty;
+                quote! { #pat: #ty }
+            } else {
+                quote! { #arg }
+            }
+        })
+        .collect();
 
     let expanded = quote! {
         #fn_vis mod #mod_name {
@@ -252,7 +373,7 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             });
 
             /// The actual implementation
-            fn implementation(#fn_inputs) #fn_output #fn_block
+            fn implementation(#(#clean_inputs),*) #fn_output #fn_block
 
             /// Wrapper that converts PyValue args and handles errors
             pub fn call(args: Vec<litter::PyValue>) -> litter::PyValue {
@@ -272,6 +393,22 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
 
                 let result = implementation(#(#arg_names),*);
                 Ok(result.into())
+            }
+
+            /// Unit struct for ergonomic Tool trait registration.
+            ///
+            /// Use with `sandbox.register(add::Tool)` for ergonomic registration,
+            /// or use `sandbox.register_tool(add::INFO.clone(), add::call)` for explicit registration.
+            pub struct Tool;
+
+            impl litter::Tool for Tool {
+                fn info() -> &'static litter::ToolInfo {
+                    &*INFO
+                }
+
+                fn call(args: Vec<litter::PyValue>) -> litter::PyValue {
+                    call(args)
+                }
             }
         }
     };

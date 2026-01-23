@@ -119,6 +119,36 @@ impl PyValue {
             _ => None,
         }
     }
+
+    /// Format value for print() output.
+    ///
+    /// Unlike Display, this doesn't quote strings (matching Python's print behavior).
+    pub fn to_print_string(&self) -> String {
+        match self {
+            PyValue::None => "None".to_string(),
+            PyValue::Bool(b) => if *b { "True" } else { "False" }.to_string(),
+            PyValue::Int(i) => i.to_string(),
+            PyValue::Float(f) => {
+                if f.fract() == 0.0 {
+                    format!("{}.0", f)
+                } else {
+                    f.to_string()
+                }
+            }
+            PyValue::Str(s) => s.clone(), // No quotes for print
+            PyValue::List(items) => {
+                let inner: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
+                format!("[{}]", inner.join(", "))
+            }
+            PyValue::Dict(pairs) => {
+                let inner: Vec<String> = pairs
+                    .iter()
+                    .map(|(k, v)| format!("'{}': {}", k, v))
+                    .collect();
+                format!("{{{}}}", inner.join(", "))
+            }
+        }
+    }
 }
 
 impl fmt::Display for PyValue {

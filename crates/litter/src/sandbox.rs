@@ -110,8 +110,38 @@ impl Sandbox {
     where
         F: Fn(Vec<PyValue>) -> PyValue + Send + Sync + 'static,
     {
-        self.evaluator
-            .register_tool(info.name.clone(), Arc::new(f) as ToolFn);
+        self.evaluator.register_tool_with_info(
+            info.clone(),
+            Arc::new(f) as ToolFn,
+        );
+        self.tool_infos.push(info);
+    }
+
+    /// Register a tool using the [`Tool`] trait.
+    ///
+    /// This is the most ergonomic way to register tools created with the
+    /// `#[tool]` macro.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use litter::Sandbox;
+    /// use litter_macros::tool;
+    ///
+    /// #[tool(description = "Add two numbers.")]
+    /// fn add(a: i64, b: i64) -> i64 { a + b }
+    ///
+    /// let mut sandbox = Sandbox::new();
+    /// sandbox.register(add::Tool);  // Ergonomic!
+    ///
+    /// let result = sandbox.execute("add(2, 3)").unwrap();
+    /// ```
+    pub fn register<T: crate::tool::Tool + 'static>(&mut self, _: T) {
+        let info = T::info().clone();
+        self.evaluator.register_tool_with_info(
+            info.clone(),
+            Arc::new(T::call) as ToolFn,
+        );
         self.tool_infos.push(info);
     }
 
@@ -208,6 +238,68 @@ impl Sandbox {
     /// ```
     pub fn execute(&mut self, code: &str) -> Result<PyValue> {
         self.evaluator.execute(code)
+    }
+
+    /// Execute Python code and capture print output.
+    ///
+    /// Returns both the result value and any output from print() calls.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use litter::Sandbox;
+    ///
+    /// let mut sandbox = Sandbox::new();
+    ///
+    /// let output = sandbox.execute_with_output(r#"
+    /// x = 10
+    /// print("x is", x)
+    /// x * 2
+    /// "#).unwrap();
+    ///
+    /// assert_eq!(output.printed, vec!["x is 10"]);
+    /// assert_eq!(output.result.as_int(), Some(20));
+    /// ```
+    pub fn execute_with_output(&mut self, code: &str) -> Result<ExecuteOutput> {
+        // Clear any previous print output
+        self.evaluator.clear_print_buffer();
+
+        // Execute the code
+        let result = self.evaluator.execute(code)?;
+
+        // Capture print output
+        let printed = self.evaluator.take_print_output();
+
+        Ok(ExecuteOutput { result, printed })
+    }
+
+    /// Take and clear any accumulated print output.
+    ///
+    /// This is useful if you want to check what was printed after
+    /// calling `execute()` multiple times.
+    pub fn take_print_output(&mut self) -> Vec<String> {
+        self.evaluator.take_print_output()
+    }
+}
+
+/// Result of executing code with print output capture.
+#[derive(Debug, Clone)]
+pub struct ExecuteOutput {
+    /// The result value of the last expression.
+    pub result: PyValue,
+    /// Lines printed via print() calls.
+    pub printed: Vec<String>,
+}
+
+impl ExecuteOutput {
+    /// Get all printed output as a single string (newline-separated).
+    pub fn print_output(&self) -> String {
+        self.printed.join("\n")
+    }
+
+    /// Check if anything was printed.
+    pub fn has_output(&self) -> bool {
+        !self.printed.is_empty()
     }
 }
 

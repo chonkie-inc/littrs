@@ -368,3 +368,49 @@ total
         .unwrap();
     assert_eq!(result, PyValue::Int(6)); // 2 + 4
 }
+
+#[test]
+fn test_tool_with_keyword_arguments() {
+    use litter::ToolInfo;
+
+    let mut sandbox = Sandbox::new();
+
+    // Register a tool with named arguments
+    let info = ToolInfo::new("greet", "Greet someone")
+        .arg_required("name", "str", "The name")
+        .arg_optional("greeting", "str", "The greeting")
+        .returns("str");
+
+    sandbox.register_tool(info, |args| {
+        let name = args.get(0).and_then(|v| v.as_str()).unwrap_or("World");
+        let greeting = args
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("Hello");
+        PyValue::Str(format!("{}, {}!", greeting, name))
+    });
+
+    // Test with positional args
+    assert_eq!(
+        sandbox.execute("greet('Alice', 'Hi')").unwrap(),
+        PyValue::Str("Hi, Alice!".to_string())
+    );
+
+    // Test with keyword args
+    assert_eq!(
+        sandbox.execute("greet(name='Bob')").unwrap(),
+        PyValue::Str("Hello, Bob!".to_string())
+    );
+
+    // Test with mixed positional and keyword args
+    assert_eq!(
+        sandbox.execute("greet('Charlie', greeting='Hey')").unwrap(),
+        PyValue::Str("Hey, Charlie!".to_string())
+    );
+
+    // Test with keyword args in different order
+    assert_eq!(
+        sandbox.execute("greet(greeting='Welcome', name='Dave')").unwrap(),
+        PyValue::Str("Welcome, Dave!".to_string())
+    );
+}
