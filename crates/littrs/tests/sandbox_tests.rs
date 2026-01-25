@@ -414,3 +414,139 @@ fn test_tool_with_keyword_arguments() {
         PyValue::Str("Welcome, Dave!".to_string())
     );
 }
+
+#[test]
+fn test_list_comprehension_basic() {
+    let mut sandbox = Sandbox::new();
+
+    // Basic list comprehension
+    assert_eq!(
+        sandbox.execute("[x for x in range(5)]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(0),
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(3),
+            PyValue::Int(4),
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_with_expression() {
+    let mut sandbox = Sandbox::new();
+
+    // List comprehension with expression
+    assert_eq!(
+        sandbox.execute("[x * 2 for x in range(4)]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(0),
+            PyValue::Int(2),
+            PyValue::Int(4),
+            PyValue::Int(6),
+        ])
+    );
+
+    // Squares
+    assert_eq!(
+        sandbox.execute("[x ** 2 for x in range(1, 5)]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::Int(4),
+            PyValue::Int(9),
+            PyValue::Int(16),
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_with_filter() {
+    let mut sandbox = Sandbox::new();
+
+    // List comprehension with if filter
+    assert_eq!(
+        sandbox.execute("[x for x in range(10) if x % 2 == 0]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(0),
+            PyValue::Int(2),
+            PyValue::Int(4),
+            PyValue::Int(6),
+            PyValue::Int(8),
+        ])
+    );
+
+    // Filter with expression
+    assert_eq!(
+        sandbox.execute("[x * 2 for x in range(5) if x > 1]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(4),
+            PyValue::Int(6),
+            PyValue::Int(8),
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_over_list() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("nums = [1, 2, 3, 4, 5]").unwrap();
+
+    assert_eq!(
+        sandbox.execute("[n + 10 for n in nums]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(11),
+            PyValue::Int(12),
+            PyValue::Int(13),
+            PyValue::Int(14),
+            PyValue::Int(15),
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_over_string() {
+    let mut sandbox = Sandbox::new();
+
+    // Iterate over string characters
+    assert_eq!(
+        sandbox.execute("[c for c in 'abc']").unwrap(),
+        PyValue::List(vec![
+            PyValue::Str("a".to_string()),
+            PyValue::Str("b".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_nested() {
+    let mut sandbox = Sandbox::new();
+
+    // Nested comprehension (flattening)
+    assert_eq!(
+        sandbox.execute("[x * y for x in range(1, 3) for y in range(1, 3)]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(1),  // 1*1
+            PyValue::Int(2),  // 1*2
+            PyValue::Int(2),  // 2*1
+            PyValue::Int(4),  // 2*2
+        ])
+    );
+}
+
+#[test]
+fn test_list_comprehension_multiple_filters() {
+    let mut sandbox = Sandbox::new();
+
+    // Multiple if conditions
+    assert_eq!(
+        sandbox.execute("[x for x in range(20) if x % 2 == 0 if x % 3 == 0]").unwrap(),
+        PyValue::List(vec![
+            PyValue::Int(0),
+            PyValue::Int(6),
+            PyValue::Int(12),
+            PyValue::Int(18),
+        ])
+    );
+}

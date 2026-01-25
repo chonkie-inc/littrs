@@ -278,6 +278,10 @@ impl Evaluator {
                 Ok(PyValue::List(items?))
             }
 
+            Expr::ListComp(listcomp) => {
+                self.eval_list_comprehension(&listcomp.elt, &listcomp.generators)
+            }
+
             Expr::Dict(dict) => {
                 let mut pairs = Vec::new();
                 for (key, value) in dict.keys.iter().zip(dict.values.iter()) {
@@ -570,6 +574,74 @@ impl Evaluator {
             Constant::Complex { .. } => Err(Error::Unsupported("Complex numbers".to_string())),
             Constant::Ellipsis => Err(Error::Unsupported("Ellipsis".to_string())),
         }
+    }
+
+    fn eval_list_comprehension(
+        &mut self,
+        elt: &Expr,
+        generators: &[rustpython_parser::ast::Comprehension],
+    ) -> Result<PyValue> {
+        let mut results = Vec::new();
+        self.eval_comprehension_recursive(elt, generators, 0, &mut results)?;
+        Ok(PyValue::List(results))
+    }
+
+    fn eval_comprehension_recursive(
+        &mut self,
+        elt: &Expr,
+        generators: &[rustpython_parser::ast::Comprehension],
+        gen_index: usize,
+        results: &mut Vec<PyValue>,
+    ) -> Result<()> {
+        if gen_index >= generators.len() {
+            // All generators exhausted, evaluate the element expression
+            let value = self.eval_expr(elt)?;
+            results.push(value);
+            return Ok(());
+        }
+
+        let generator = &generators[gen_index];
+
+        // Check for async comprehension (not supported)
+        if generator.is_async {
+            return Err(Error::Unsupported("Async comprehensions".to_string()));
+        }
+
+        // Evaluate the iterable
+        let iter_value = self.eval_expr(&generator.iter)?;
+        let items = match iter_value {
+            PyValue::List(items) => items,
+            PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
+            other => {
+                return Err(Error::Type {
+                    expected: "iterable".to_string(),
+                    got: other.type_name().to_string(),
+                })
+            }
+        };
+
+        // Iterate and apply filters
+        for item in items {
+            // Assign the loop variable
+            self.assign_target(&generator.target, item)?;
+
+            // Check all if conditions for this generator
+            let mut pass_filters = true;
+            for condition in &generator.ifs {
+                let cond_value = self.eval_expr(condition)?;
+                if !cond_value.is_truthy() {
+                    pass_filters = false;
+                    break;
+                }
+            }
+
+            if pass_filters {
+                // Recurse to next generator or evaluate element
+                self.eval_comprehension_recursive(elt, generators, gen_index + 1, results)?;
+            }
+        }
+
+        Ok(())
     }
 
     // === Diagnostic helpers ===
