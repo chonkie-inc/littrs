@@ -20,9 +20,9 @@ repository = "https://github.com/chonkie-inc/littrs"
 
 [workspace.dependencies]
 # Internal crates
-littrs = { path = "crates/littrs" }
-littrs-macros = { path = "crates/littrs-macros" }
-littrs-wasm = { path = "crates/littrs-wasm" }
+littrs = { version = "0.1.0", path = "crates/littrs" }
+littrs-macros = { version = "0.1.0", path = "crates/littrs-macros" }
+littrs-wasm = { version = "0.1.0", path = "crates/littrs-wasm" }
 
 # External dependencies
 rustpython-parser = "0.4"
