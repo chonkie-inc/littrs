@@ -8,6 +8,10 @@ use wasmtime_wasi::WasiCtxBuilder;
 use crate::wasm_error::{Error, Result};
 use crate::PyValue;
 
+/// Embedded WASM sandbox module.
+/// This is the pre-compiled littrs-wasm binary.
+const EMBEDDED_WASM: &[u8] = include_bytes!("../wasm/sandbox.wasm");
+
 /// Tool function type.
 pub type ToolFn = Arc<dyn Fn(Vec<PyValue>) -> PyValue + Send + Sync>;
 
@@ -95,8 +99,45 @@ struct SandboxState {
 }
 
 impl WasmSandbox {
-    /// Create a new WASM sandbox from the given WASM bytes.
-    pub fn new(wasm_bytes: &[u8], config: WasmSandboxConfig) -> Result<Self> {
+    /// Create a new WASM sandbox with default configuration.
+    ///
+    /// This uses the embedded WASM module, so no external files are needed.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use littrs::{WasmSandbox, PyValue};
+    ///
+    /// let mut sandbox = WasmSandbox::new().unwrap();
+    /// let result = sandbox.execute("1 + 2").unwrap();
+    /// assert_eq!(result, PyValue::Int(3));
+    /// ```
+    pub fn new() -> Result<Self> {
+        Self::with_config(WasmSandboxConfig::default())
+    }
+
+    /// Create a new WASM sandbox with custom configuration.
+    ///
+    /// This uses the embedded WASM module with the specified configuration.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use littrs::{WasmSandbox, WasmSandboxConfig};
+    ///
+    /// let config = WasmSandboxConfig::default()
+    ///     .with_fuel(1_000_000);
+    /// let mut sandbox = WasmSandbox::with_config(config).unwrap();
+    /// ```
+    pub fn with_config(config: WasmSandboxConfig) -> Result<Self> {
+        Self::from_bytes(EMBEDDED_WASM, config)
+    }
+
+    /// Create a new WASM sandbox from custom WASM bytes.
+    ///
+    /// This is useful if you want to use a custom-built WASM module
+    /// instead of the embedded one.
+    pub fn from_bytes(wasm_bytes: &[u8], config: WasmSandboxConfig) -> Result<Self> {
         let mut engine_config = Config::new();
 
         // Enable fuel consumption if configured

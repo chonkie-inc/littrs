@@ -1,29 +1,14 @@
 //! Integration tests for the WASM sandbox.
 //!
-//! These tests require the WASM module to be built first:
-//! cargo build -p littrs-wasm --target wasm32-wasip1 --release
+//! The WASM module is embedded in the crate, so no external files are needed.
 
 #![cfg(feature = "wasm")]
 
 use littrs::{PyValue, WasmSandbox, WasmSandboxConfig};
 
-/// Get the WASM bytes. In a real application, you'd include this at compile time
-/// or load it from a known location.
-fn get_wasm_bytes() -> Vec<u8> {
-    let wasm_path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../target/wasm32-wasip1/release/littrs_wasm.wasm"
-    );
-    std::fs::read(wasm_path).expect(
-        "WASM module not found. Run: cargo build -p littrs-wasm --target wasm32-wasip1 --release",
-    )
-}
-
 #[test]
 fn test_basic_arithmetic() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     assert_eq!(sandbox.execute("2 + 2").unwrap(), PyValue::Int(4));
     assert_eq!(sandbox.execute("10 * 5").unwrap(), PyValue::Int(50));
@@ -32,9 +17,7 @@ fn test_basic_arithmetic() {
 
 #[test]
 fn test_variables() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox.execute("x = 10").unwrap();
     sandbox.execute("y = 20").unwrap();
@@ -43,9 +26,7 @@ fn test_variables() {
 
 #[test]
 fn test_for_loop() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     let result = sandbox
         .execute(
@@ -62,9 +43,7 @@ total
 
 #[test]
 fn test_register_tool() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox
         .register_fn("double", |args| {
@@ -78,9 +57,7 @@ fn test_register_tool() {
 
 #[test]
 fn test_tool_with_dict_result() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox
         .register_fn("get_user", |args| {
@@ -105,9 +82,7 @@ user['name']
 
 #[test]
 fn test_set_variable() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox.set_variable("config_value", 100i64).unwrap();
     assert_eq!(
@@ -118,9 +93,8 @@ fn test_set_variable() {
 
 #[test]
 fn test_fuel_limit() {
-    let wasm_bytes = get_wasm_bytes();
     let config = WasmSandboxConfig::default().with_fuel(1000); // Very low fuel
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::with_config(config).unwrap();
 
     // This infinite loop should run out of fuel
     let result = sandbox.execute(
@@ -142,9 +116,8 @@ while True:
 
 #[test]
 fn test_remaining_fuel() {
-    let wasm_bytes = get_wasm_bytes();
     let config = WasmSandboxConfig::default().with_fuel(1_000_000);
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::with_config(config).unwrap();
 
     let initial_fuel = sandbox.remaining_fuel().unwrap();
     sandbox.execute("2 + 2").unwrap();
@@ -155,9 +128,7 @@ fn test_remaining_fuel() {
 
 #[test]
 fn test_reset() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox.execute("x = 42").unwrap();
     assert_eq!(sandbox.execute("x").unwrap(), PyValue::Int(42));
@@ -171,9 +142,7 @@ fn test_reset() {
 
 #[test]
 fn test_complex_computation() {
-    let wasm_bytes = get_wasm_bytes();
-    let config = WasmSandboxConfig::default();
-    let mut sandbox = WasmSandbox::new(&wasm_bytes, config).unwrap();
+    let mut sandbox = WasmSandbox::new().unwrap();
 
     let result = sandbox
         .execute(
