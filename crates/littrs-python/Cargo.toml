@@ -1,0 +1,15 @@
+[package]
+name = "littrs-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Python bindings for littrs - a minimal, secure Python sandbox"
+
+[lib]
+name = "littrs"
+crate-type = ["cdylib"]
+
+[dependencies]
+littrs = { workspace = true, features = ["wasm"] }
+pyo3 = { version = "0.23", features = ["extension-module"] }

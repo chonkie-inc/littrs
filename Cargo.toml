@@ -4,9 +4,12 @@ members = [
     "crates/littrs",
     "crates/littrs-macros",
     "crates/littrs-wasm",
+    "crates/littrs-python",
 ]
 
-# Exclude littrs-wasm from default build - it requires wasm32-wasip1 target
+# Exclude special-target crates from default build
+# - littrs-wasm requires wasm32-wasip1 target
+# - littrs-python is built with maturin
 default-members = [
     "crates/littrs",
     "crates/littrs-macros",
