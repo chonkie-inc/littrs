@@ -28,15 +28,17 @@ jobs:
       - name: Copy WASM to littrs crate
         run: cp target/wasm32-wasip1/release/littrs_wasm.wasm crates/littrs/wasm/sandbox.wasm
 
-      # Publish in dependency order
+      # Publish in dependency order (continue on error if already published)
       - name: Publish littrs-macros
-        run: cargo publish -p littrs-macros --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p littrs-macros --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
 
       - name: Wait for crates.io
         run: sleep 30
 
       - name: Publish littrs
-        run: cargo publish -p littrs --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty
+        run: cargo publish -p littrs --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty || echo "Already published or failed"
+        continue-on-error: true
 
   # Build and publish Python wheels to PyPI
   publish-pypi:
