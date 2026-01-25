@@ -32,6 +32,7 @@ use crate::value::PyValue;
 ///
 /// assert_eq!(result, PyValue::Int(60));
 /// ```
+#[derive(Clone)]
 pub struct Sandbox {
     evaluator: Evaluator,
     tool_infos: Vec<ToolInfo>,

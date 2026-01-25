@@ -33,6 +33,7 @@ struct RegisteredTool {
 }
 
 /// The evaluator that executes Python AST nodes.
+#[derive(Clone)]
 pub struct Evaluator {
     /// Variable bindings in the current scope.
     variables: HashMap<String, PyValue>,
