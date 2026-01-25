@@ -240,6 +240,52 @@ impl Evaluator {
                 }
                 Err(Error::Runtime("Cannot assign to subscript".to_string()))
             }
+            Expr::Tuple(tuple) => {
+                // Tuple unpacking: a, b = [1, 2] or for i, x in enumerate(items)
+                let items = match value {
+                    PyValue::List(items) => items,
+                    _ => {
+                        return Err(Error::Type {
+                            expected: "list".to_string(),
+                            got: value.type_name().to_string(),
+                        })
+                    }
+                };
+                if items.len() != tuple.elts.len() {
+                    return Err(Error::Runtime(format!(
+                        "cannot unpack: expected {} values, got {}",
+                        tuple.elts.len(),
+                        items.len()
+                    )));
+                }
+                for (target, val) in tuple.elts.iter().zip(items.into_iter()) {
+                    self.assign_target(target, val)?;
+                }
+                Ok(())
+            }
+            Expr::List(list) => {
+                // List unpacking: [a, b] = [1, 2]
+                let items = match value {
+                    PyValue::List(items) => items,
+                    _ => {
+                        return Err(Error::Type {
+                            expected: "list".to_string(),
+                            got: value.type_name().to_string(),
+                        })
+                    }
+                };
+                if items.len() != list.elts.len() {
+                    return Err(Error::Runtime(format!(
+                        "cannot unpack: expected {} values, got {}",
+                        list.elts.len(),
+                        items.len()
+                    )));
+                }
+                for (target, val) in list.elts.iter().zip(items.into_iter()) {
+                    self.assign_target(target, val)?;
+                }
+                Ok(())
+            }
             _ => Err(Error::Unsupported(
                 "Assignment target not supported".to_string(),
             )),
@@ -281,8 +327,37 @@ impl Evaluator {
                 Ok(PyValue::List(items?))
             }
 
+            Expr::Tuple(tuple) => {
+                // Tuples are represented as lists in our value system
+                let items: Result<Vec<PyValue>> =
+                    tuple.elts.iter().map(|e| self.eval_expr(e)).collect();
+                Ok(PyValue::List(items?))
+            }
+
             Expr::ListComp(listcomp) => {
                 self.eval_list_comprehension(&listcomp.elt, &listcomp.generators)
+            }
+
+            Expr::GeneratorExp(genexp) => {
+                // Treat generator expressions as list comprehensions for simplicity
+                self.eval_list_comprehension(&genexp.elt, &genexp.generators)
+            }
+
+            Expr::JoinedStr(joined) => {
+                // F-string: concatenate all parts
+                let mut result = String::new();
+                for part in &joined.values {
+                    let value = self.eval_expr(part)?;
+                    result.push_str(&value.to_print_string());
+                }
+                Ok(PyValue::Str(result))
+            }
+
+            Expr::FormattedValue(fv) => {
+                // Formatted value inside f-string: {expr} or {expr:format}
+                let value = self.eval_expr(&fv.value)?;
+                // TODO: Handle format spec if needed
+                Ok(value)
             }
 
             Expr::Dict(dict) => {
