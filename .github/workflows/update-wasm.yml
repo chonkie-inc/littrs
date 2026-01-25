@@ -1,0 +1,50 @@
+name: Update WASM Binary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/littrs-wasm/**'
+      - 'crates/littrs/src/**'  # Rebuild if sandbox internals change
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  update-wasm:
+    name: Rebuild and commit WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build WASM binary
+        run: cargo build -p littrs-wasm --target wasm32-wasip1 --release
+
+      - name: Copy WASM to littrs crate
+        run: |
+          cp target/wasm32-wasip1/release/littrs_wasm.wasm crates/littrs/wasm/sandbox.wasm
+          ls -lh crates/littrs/wasm/sandbox.wasm
+
+      - name: Check for changes
+        id: check
+        run: |
+          if git diff --quiet crates/littrs/wasm/sandbox.wasm; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit updated WASM
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add crates/littrs/wasm/sandbox.wasm
+          git commit -m "Update embedded WASM binary"
+          git push
