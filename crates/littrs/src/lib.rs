@@ -71,8 +71,10 @@ mod builtins;
 mod diagnostic;
 mod error;
 mod eval;
+mod methods;
 mod operators;
 mod sandbox;
+mod slice;
 mod tool;
 mod value;
 

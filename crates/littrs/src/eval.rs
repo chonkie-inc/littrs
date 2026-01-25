@@ -15,7 +15,9 @@ use rustpython_parser::{parse, Mode};
 use crate::builtins::{try_builtin, BuiltinResult};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::error::{Error, Result};
+use crate::methods;
 use crate::operators::{apply_binop, apply_cmpop};
+use crate::slice;
 use crate::tool::ToolInfo;
 use crate::value::PyValue;
 
@@ -389,6 +391,12 @@ impl Evaluator {
 
             Expr::Subscript(sub) => {
                 let value = self.eval_expr(&sub.value)?;
+
+                // Check if it's a slice expression
+                if let Expr::Slice(slice_expr) = sub.slice.as_ref() {
+                    return self.eval_slice(&value, slice_expr);
+                }
+
                 let slice = self.eval_expr(&sub.slice)?;
 
                 match (&value, &slice) {
@@ -456,6 +464,11 @@ impl Evaluator {
     }
 
     fn eval_call(&mut self, call: &rustpython_parser::ast::ExprCall) -> Result<PyValue> {
+        // Check for method calls (e.g., list.append(), str.lower())
+        if let Expr::Attribute(attr) = call.func.as_ref() {
+            return self.eval_method_call(attr, call);
+        }
+
         // Get function name
         let func_name = match call.func.as_ref() {
             Expr::Name(name) => name.id.to_string(),
@@ -482,6 +495,282 @@ impl Evaluator {
         }
 
         Err(Error::NameError(func_name))
+    }
+
+    /// Evaluate a method call like `list.append(item)` or `str.lower()`
+    fn eval_method_call(
+        &mut self,
+        attr: &rustpython_parser::ast::ExprAttribute,
+        call: &rustpython_parser::ast::ExprCall,
+    ) -> Result<PyValue> {
+        let method_name = attr.attr.as_str();
+
+        // Evaluate arguments
+        let args: Result<Vec<PyValue>> = call.args.iter().map(|a| self.eval_expr(a)).collect();
+        let args = args?;
+
+        // For mutating methods, we need to get the variable name and mutate in place
+        if let Expr::Name(name) = attr.value.as_ref() {
+            let var_name = name.id.to_string();
+
+            // Check if this is a mutating method that needs special handling
+            match method_name {
+                "append" | "extend" | "pop" | "clear" | "insert" | "remove" => {
+                    return self.eval_list_mutating_method(&var_name, method_name, args);
+                }
+                "update" | "setdefault" => {
+                    return self.eval_dict_mutating_method(&var_name, method_name, args);
+                }
+                _ => {}
+            }
+        }
+
+        // For non-mutating methods, evaluate the value and call the method
+        let value = self.eval_expr(&attr.value)?;
+        self.call_method(&value, method_name, args)
+    }
+
+    /// Call a method on a value (non-mutating)
+    fn call_method(&self, value: &PyValue, method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+        match value {
+            PyValue::Str(s) => methods::call_str_method(s, method, args),
+            PyValue::List(items) => methods::call_list_method(items, method, args),
+            PyValue::Dict(pairs) => methods::call_dict_method(pairs, method, args),
+            _ => Err(Error::Unsupported(format!(
+                "Method '{}' not supported on type '{}'",
+                method,
+                value.type_name()
+            ))),
+        }
+    }
+
+    /// List mutating methods (append, extend, pop, etc.)
+    fn eval_list_mutating_method(
+        &mut self,
+        var_name: &str,
+        method: &str,
+        args: Vec<PyValue>,
+    ) -> Result<PyValue> {
+        let list = self.variables.get_mut(var_name).ok_or_else(|| {
+            Error::NameError(var_name.to_string())
+        })?;
+
+        let items = match list {
+            PyValue::List(items) => items,
+            _ => {
+                return Err(Error::Type {
+                    expected: "list".to_string(),
+                    got: list.type_name().to_string(),
+                })
+            }
+        };
+
+        match method {
+            "append" => {
+                if args.len() != 1 {
+                    return Err(Error::Runtime("append() takes exactly 1 argument".to_string()));
+                }
+                items.push(args.into_iter().next().unwrap());
+                Ok(PyValue::None)
+            }
+            "extend" => {
+                if args.len() != 1 {
+                    return Err(Error::Runtime("extend() takes exactly 1 argument".to_string()));
+                }
+                match &args[0] {
+                    PyValue::List(new_items) => {
+                        items.extend(new_items.clone());
+                    }
+                    _ => {
+                        return Err(Error::Type {
+                            expected: "list".to_string(),
+                            got: args[0].type_name().to_string(),
+                        })
+                    }
+                }
+                Ok(PyValue::None)
+            }
+            "pop" => {
+                let index = if args.is_empty() {
+                    None
+                } else {
+                    Some(args[0].as_int().ok_or_else(|| Error::Type {
+                        expected: "int".to_string(),
+                        got: args[0].type_name().to_string(),
+                    })?)
+                };
+                if items.is_empty() {
+                    return Err(Error::Runtime("pop from empty list".to_string()));
+                }
+                let idx = match index {
+                    None => items.len() - 1,
+                    Some(i) => {
+                        let len = items.len() as i64;
+                        (if i < 0 { len + i } else { i }) as usize
+                    }
+                };
+                if idx >= items.len() {
+                    return Err(Error::Runtime("pop index out of range".to_string()));
+                }
+                Ok(items.remove(idx))
+            }
+            "clear" => {
+                if !args.is_empty() {
+                    return Err(Error::Runtime("clear() takes no arguments".to_string()));
+                }
+                items.clear();
+                Ok(PyValue::None)
+            }
+            "insert" => {
+                if args.len() != 2 {
+                    return Err(Error::Runtime("insert() takes exactly 2 arguments".to_string()));
+                }
+                let index = args[0].as_int().ok_or_else(|| Error::Type {
+                    expected: "int".to_string(),
+                    got: args[0].type_name().to_string(),
+                })?;
+                let len = items.len() as i64;
+                let idx = if index < 0 {
+                    (len + index).max(0) as usize
+                } else {
+                    (index as usize).min(items.len())
+                };
+                items.insert(idx, args[1].clone());
+                Ok(PyValue::None)
+            }
+            "remove" => {
+                if args.len() != 1 {
+                    return Err(Error::Runtime("remove() takes exactly 1 argument".to_string()));
+                }
+                let pos = items.iter().position(|x| x == &args[0]);
+                match pos {
+                    Some(idx) => {
+                        items.remove(idx);
+                        Ok(PyValue::None)
+                    }
+                    None => Err(Error::Runtime("value not in list".to_string())),
+                }
+            }
+            _ => Err(Error::Unsupported(format!(
+                "List method '{}' not implemented",
+                method
+            ))),
+        }
+    }
+
+    /// Dict mutating methods
+    fn eval_dict_mutating_method(
+        &mut self,
+        var_name: &str,
+        method: &str,
+        args: Vec<PyValue>,
+    ) -> Result<PyValue> {
+        let dict = self.variables.get_mut(var_name).ok_or_else(|| {
+            Error::NameError(var_name.to_string())
+        })?;
+
+        let pairs = match dict {
+            PyValue::Dict(pairs) => pairs,
+            _ => {
+                return Err(Error::Type {
+                    expected: "dict".to_string(),
+                    got: dict.type_name().to_string(),
+                })
+            }
+        };
+
+        match method {
+            "update" => {
+                if args.len() != 1 {
+                    return Err(Error::Runtime("update() takes exactly 1 argument".to_string()));
+                }
+                match &args[0] {
+                    PyValue::Dict(new_pairs) => {
+                        for (k, v) in new_pairs {
+                            if let Some(existing) = pairs.iter_mut().find(|(ek, _)| ek == k) {
+                                existing.1 = v.clone();
+                            } else {
+                                pairs.push((k.clone(), v.clone()));
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(Error::Type {
+                            expected: "dict".to_string(),
+                            got: args[0].type_name().to_string(),
+                        })
+                    }
+                }
+                Ok(PyValue::None)
+            }
+            "setdefault" => {
+                if args.is_empty() || args.len() > 2 {
+                    return Err(Error::Runtime("setdefault() takes 1 or 2 arguments".to_string()));
+                }
+                let key = args[0].as_str().ok_or_else(|| Error::Type {
+                    expected: "str".to_string(),
+                    got: args[0].type_name().to_string(),
+                })?;
+                let default = args.get(1).cloned().unwrap_or(PyValue::None);
+
+                if let Some((_, v)) = pairs.iter().find(|(k, _)| k == key) {
+                    return Ok(v.clone());
+                }
+                pairs.push((key.to_string(), default.clone()));
+                Ok(default)
+            }
+            _ => Err(Error::Unsupported(format!(
+                "Dict method '{}' not implemented",
+                method
+            ))),
+        }
+    }
+
+    /// Evaluate a slice expression like `list[1:5]` or `str[:10]`
+    fn eval_slice(
+        &mut self,
+        value: &PyValue,
+        slice: &rustpython_parser::ast::ExprSlice,
+    ) -> Result<PyValue> {
+        // Evaluate slice bounds
+        let lower = match &slice.lower {
+            Some(expr) => Some(self.eval_expr(expr)?.as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: "non-int".to_string(),
+            })?),
+            None => None,
+        };
+
+        let upper = match &slice.upper {
+            Some(expr) => Some(self.eval_expr(expr)?.as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: "non-int".to_string(),
+            })?),
+            None => None,
+        };
+
+        let step = match &slice.step {
+            Some(expr) => {
+                let s = self.eval_expr(expr)?.as_int().ok_or_else(|| Error::Type {
+                    expected: "int".to_string(),
+                    got: "non-int".to_string(),
+                })?;
+                if s == 0 {
+                    return Err(Error::Runtime("slice step cannot be zero".to_string()));
+                }
+                Some(s)
+            }
+            None => None,
+        };
+
+        match value {
+            PyValue::List(items) => slice::slice_list(items, lower, upper, step),
+            PyValue::Str(s) => slice::slice_string(s, lower, upper, step),
+            _ => Err(Error::Type {
+                expected: "list or str".to_string(),
+                got: value.type_name().to_string(),
+            }),
+        }
     }
 
     fn eval_tool_call(
