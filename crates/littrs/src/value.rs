@@ -32,7 +32,7 @@ impl std::error::Error for TypeError {}
 /// # Example
 ///
 /// ```
-/// use litter::{PyValue, FromPyValue};
+/// use littrs::{PyValue, FromPyValue};
 ///
 /// let value = PyValue::Str("hello".to_string());
 /// let s: String = String::from_py_value(&value).unwrap();

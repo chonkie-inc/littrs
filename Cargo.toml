@@ -1,28 +1,28 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/litter",
-    "crates/litter-macros",
-    "crates/litter-wasm",
+    "crates/littrs",
+    "crates/littrs-macros",
+    "crates/littrs-wasm",
 ]
 
-# Exclude litter-wasm from default build - it requires wasm32-wasip1 target
+# Exclude littrs-wasm from default build - it requires wasm32-wasip1 target
 default-members = [
-    "crates/litter",
-    "crates/litter-macros",
+    "crates/littrs",
+    "crates/littrs-macros",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/chonkie-inc/litter"
+repository = "https://github.com/chonkie-inc/littrs"
 
 [workspace.dependencies]
 # Internal crates
-litter = { path = "crates/litter" }
-litter-macros = { path = "crates/litter-macros" }
-litter-wasm = { path = "crates/litter-wasm" }
+littrs = { path = "crates/littrs" }
+littrs-macros = { path = "crates/littrs-macros" }
+littrs-wasm = { path = "crates/littrs-wasm" }
 
 # External dependencies
 rustpython-parser = "0.4"

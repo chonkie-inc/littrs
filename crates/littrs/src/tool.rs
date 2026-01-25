@@ -66,7 +66,7 @@ impl std::error::Error for ToolCallError {}
 /// # Example
 ///
 /// ```ignore
-/// use litter::{Sandbox, tool};
+/// use littrs::{Sandbox, tool};
 ///
 /// #[tool(description = "Add two numbers.")]
 /// fn add(a: i64, b: i64) -> i64 { a + b }
@@ -132,7 +132,7 @@ impl ArgInfo {
 /// # Example
 ///
 /// ```
-/// use litter::ToolInfo;
+/// use littrs::ToolInfo;
 ///
 /// let tool = ToolInfo::new("fetch_weather", "Get current weather for a city")
 ///     .arg_required("city", "str", "The city name")

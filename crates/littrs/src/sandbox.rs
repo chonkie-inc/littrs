@@ -13,7 +13,7 @@ use crate::value::PyValue;
 /// # Example
 ///
 /// ```
-/// use litter::{Sandbox, PyValue};
+/// use littrs::{Sandbox, PyValue};
 ///
 /// let mut sandbox = Sandbox::new();
 ///
@@ -53,7 +53,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::{Sandbox, PyValue};
+    /// use littrs::{Sandbox, PyValue};
     ///
     /// let mut sandbox = Sandbox::new();
     ///
@@ -82,7 +82,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::{Sandbox, PyValue, ToolInfo};
+    /// use littrs::{Sandbox, PyValue, ToolInfo};
     ///
     /// let mut sandbox = Sandbox::new();
     ///
@@ -125,8 +125,8 @@ impl Sandbox {
     /// # Example
     ///
     /// ```ignore
-    /// use litter::Sandbox;
-    /// use litter_macros::tool;
+    /// use littrs::Sandbox;
+    /// use littrs_macros::tool;
     ///
     /// #[tool(description = "Add two numbers.")]
     /// fn add(a: i64, b: i64) -> i64 { a + b }
@@ -153,7 +153,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::{Sandbox, PyValue, ToolInfo};
+    /// use littrs::{Sandbox, PyValue, ToolInfo};
     ///
     /// let mut sandbox = Sandbox::new();
     ///
@@ -192,7 +192,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::{Sandbox, PyValue};
+    /// use littrs::{Sandbox, PyValue};
     ///
     /// let mut sandbox = Sandbox::new();
     /// sandbox.set_variable("x", PyValue::Int(42));
@@ -219,7 +219,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::{Sandbox, PyValue};
+    /// use littrs::{Sandbox, PyValue};
     ///
     /// let mut sandbox = Sandbox::new();
     ///
@@ -247,7 +247,7 @@ impl Sandbox {
     /// # Example
     ///
     /// ```
-    /// use litter::Sandbox;
+    /// use littrs::Sandbox;
     ///
     /// let mut sandbox = Sandbox::new();
     ///

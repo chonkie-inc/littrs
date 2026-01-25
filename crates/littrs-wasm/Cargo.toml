@@ -1,6 +1,6 @@
 [package]
-name = "litter-wasm"
-description = "WASM guest module for Litter sandbox"
+name = "littrs-wasm"
+description = "WASM guest module for Littrs sandbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,6 @@ repository.workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-litter = { workspace = true, features = ["serde"] }
+littrs = { workspace = true, features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true

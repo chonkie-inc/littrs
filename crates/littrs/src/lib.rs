@@ -1,6 +1,6 @@
-//! Litter - A minimal, secure Python sandbox for AI agents
+//! Littrs - A minimal, secure Python sandbox for AI agents
 //!
-//! Litter provides a safe execution environment for running untrusted Python code.
+//! Littrs provides a safe execution environment for running untrusted Python code.
 //! It supports a minimal Python subset focused on the needs of AI agent tool calling.
 //!
 //! # Features
@@ -13,7 +13,7 @@
 //! # Quick Start
 //!
 //! ```
-//! use litter::{Sandbox, PyValue};
+//! use littrs::{Sandbox, PyValue};
 //!
 //! // Create a sandbox
 //! let mut sandbox = Sandbox::new();
@@ -89,7 +89,7 @@ pub use value::{FromPyValue, PyValue, TypeError};
 
 // Re-export the macro when the macros feature is enabled
 #[cfg(feature = "macros")]
-pub use litter_macros::tool;
+pub use littrs_macros::tool;
 
 #[cfg(feature = "wasm")]
 pub use wasm_error::{Error as WasmError, Result as WasmResult};

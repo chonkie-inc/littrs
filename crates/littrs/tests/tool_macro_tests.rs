@@ -1,7 +1,7 @@
 //! Tests for the #[tool] proc macro.
 
-use litter::{PyValue, Sandbox};
-use litter_macros::tool;
+use littrs::{PyValue, Sandbox};
+use littrs_macros::tool;
 
 /// Add two numbers together.
 ///

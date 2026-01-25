@@ -1,5 +1,5 @@
 [package]
-name = "litter"
+name = "littrs"
 description = "A minimal, secure Python sandbox for AI agents"
 version.workspace = true
 edition.workspace = true
@@ -15,14 +15,14 @@ serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
-litter-macros = { workspace = true, optional = true }
+littrs-macros = { workspace = true, optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"
-litter-macros.workspace = true
+littrs-macros.workspace = true
 
 [features]
 default = []
 serde = ["dep:serde"]
-macros = ["dep:litter-macros"]
+macros = ["dep:littrs-macros"]
 wasm = ["dep:wasmtime", "dep:wasmtime-wasi", "serde", "dep:serde_json"]

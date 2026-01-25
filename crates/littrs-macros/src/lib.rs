@@ -1,4 +1,4 @@
-//! Procedural macros for Litter sandbox.
+//! Procedural macros for Littrs sandbox.
 //!
 //! This crate provides the `#[tool]` attribute macro for defining tools
 //! with automatic type conversion and documentation generation.
@@ -6,8 +6,8 @@
 //! # Example
 //!
 //! ```ignore
-//! use litter_macros::tool;
-//! use litter::PyValue;
+//! use littrs_macros::tool;
+//! use littrs::PyValue;
 //!
 //! /// Get current weather for a city.
 //! ///
@@ -225,7 +225,7 @@ fn is_option_type(ty: &Type) -> bool {
 /// The `#[tool]` attribute macro for defining sandbox tools.
 ///
 /// This macro transforms a function into a tool that can be registered with
-/// a Litter sandbox, with automatic:
+/// a Littrs sandbox, with automatic:
 /// - Type conversion from PyValue using `FromPyValue`
 /// - Error handling for type mismatches
 /// - Documentation generation for LLM system prompts
@@ -251,7 +251,7 @@ fn is_option_type(ty: &Type) -> bool {
 /// The macro generates a module containing:
 /// - `INFO`: Static `ToolInfo` with metadata
 /// - `call`: Function `fn(Vec<PyValue>) -> PyValue`
-/// - `Tool`: Unit struct implementing `litter::Tool` trait
+/// - `Tool`: Unit struct implementing `littrs::Tool` trait
 ///
 /// # Registration
 ///
@@ -316,17 +316,17 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
                 if is_optional {
                     arg_conversions.push(quote! {
                         let #arg_name: #ty = match args.get(#idx) {
-                            Some(v) => <#ty as litter::FromPyValue>::from_py_value(v)
-                                .map_err(|e| litter::ToolCallError::type_error(#arg_name_str, e))?,
+                            Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
+                                .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
                             None => None,
                         };
                     });
                 } else {
                     arg_conversions.push(quote! {
                         let #arg_name: #ty = match args.get(#idx) {
-                            Some(v) => <#ty as litter::FromPyValue>::from_py_value(v)
-                                .map_err(|e| litter::ToolCallError::type_error(#arg_name_str, e))?,
-                            None => return Err(litter::ToolCallError::missing_argument(#arg_name_str)),
+                            Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
+                                .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
+                            None => return Err(littrs::ToolCallError::missing_argument(#arg_name_str)),
                         };
                     });
                 }
@@ -366,8 +366,8 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             use super::*;
 
             /// Tool metadata for registration
-            pub static INFO: std::sync::LazyLock<litter::ToolInfo> = std::sync::LazyLock::new(|| {
-                litter::ToolInfo::new(#fn_name_str, #description)
+            pub static INFO: std::sync::LazyLock<littrs::ToolInfo> = std::sync::LazyLock::new(|| {
+                littrs::ToolInfo::new(#fn_name_str, #description)
                     #(#arg_infos)*
                     .returns(#return_python_type)
             });
@@ -376,19 +376,19 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             fn implementation(#(#clean_inputs),*) #fn_output #fn_block
 
             /// Wrapper that converts PyValue args and handles errors
-            pub fn call(args: Vec<litter::PyValue>) -> litter::PyValue {
+            pub fn call(args: Vec<littrs::PyValue>) -> littrs::PyValue {
                 match try_call(args) {
                     Ok(v) => v,
                     Err(e) => {
                         // Return error as a dict with error info
-                        litter::PyValue::Dict(vec![
-                            ("error".to_string(), litter::PyValue::Str(e.to_string())),
+                        littrs::PyValue::Dict(vec![
+                            ("error".to_string(), littrs::PyValue::Str(e.to_string())),
                         ])
                     }
                 }
             }
 
-            fn try_call(args: Vec<litter::PyValue>) -> Result<litter::PyValue, litter::ToolCallError> {
+            fn try_call(args: Vec<littrs::PyValue>) -> Result<littrs::PyValue, littrs::ToolCallError> {
                 #(#arg_conversions)*
 
                 let result = implementation(#(#arg_names),*);
@@ -401,12 +401,12 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             /// or use `sandbox.register_tool(add::INFO.clone(), add::call)` for explicit registration.
             pub struct Tool;
 
-            impl litter::Tool for Tool {
-                fn info() -> &'static litter::ToolInfo {
+            impl littrs::Tool for Tool {
+                fn info() -> &'static littrs::ToolInfo {
                     &*INFO
                 }
 
-                fn call(args: Vec<litter::PyValue>) -> litter::PyValue {
+                fn call(args: Vec<littrs::PyValue>) -> littrs::PyValue {
                     call(args)
                 }
             }

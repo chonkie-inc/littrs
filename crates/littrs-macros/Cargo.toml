@@ -1,6 +1,6 @@
 [package]
-name = "litter-macros"
-description = "Procedural macros for Litter sandbox"
+name = "littrs-macros"
+description = "Procedural macros for Littrs sandbox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

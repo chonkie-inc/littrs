@@ -1,21 +1,21 @@
 //! Integration tests for the WASM sandbox.
 //!
 //! These tests require the WASM module to be built first:
-//! cargo build -p litter-wasm --target wasm32-wasip1 --release
+//! cargo build -p littrs-wasm --target wasm32-wasip1 --release
 
 #![cfg(feature = "wasm")]
 
-use litter::{PyValue, WasmSandbox, WasmSandboxConfig};
+use littrs::{PyValue, WasmSandbox, WasmSandboxConfig};
 
 /// Get the WASM bytes. In a real application, you'd include this at compile time
 /// or load it from a known location.
 fn get_wasm_bytes() -> Vec<u8> {
     let wasm_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../target/wasm32-wasip1/release/litter_wasm.wasm"
+        "/../../target/wasm32-wasip1/release/littrs_wasm.wasm"
     );
     std::fs::read(wasm_path).expect(
-        "WASM module not found. Run: cargo build -p litter-wasm --target wasm32-wasip1 --release",
+        "WASM module not found. Run: cargo build -p littrs-wasm --target wasm32-wasip1 --release",
     )
 }
 

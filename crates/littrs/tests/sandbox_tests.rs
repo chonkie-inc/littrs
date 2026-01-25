@@ -1,4 +1,4 @@
-use litter::{PyValue, Sandbox};
+use littrs::{PyValue, Sandbox};
 
 #[test]
 fn test_basic_arithmetic() {
@@ -371,7 +371,7 @@ total
 
 #[test]
 fn test_tool_with_keyword_arguments() {
-    use litter::ToolInfo;
+    use littrs::ToolInfo;
 
     let mut sandbox = Sandbox::new();
 

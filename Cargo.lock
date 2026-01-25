@@ -1068,10 +1068,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
-name = "litter"
+name = "littrs"
 version = "0.1.0"
 dependencies = [
- "litter-macros",
+ "littrs-macros",
  "pretty_assertions",
  "rustpython-parser",
  "serde",
@@ -1082,7 +1082,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "litter-macros"
+name = "littrs-macros"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -1091,10 +1091,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "litter-wasm"
+name = "littrs-wasm"
 version = "0.1.0"
 dependencies = [
- "litter",
+ "littrs",
  "serde",
  "serde_json",
 ]

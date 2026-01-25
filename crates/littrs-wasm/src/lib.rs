@@ -1,4 +1,4 @@
-//! WASM guest module for Litter sandbox.
+//! WASM guest module for Littrs sandbox.
 //!
 //! This module is compiled to WebAssembly and provides the sandboxed
 //! Python execution environment. It exports functions for the host
@@ -6,7 +6,7 @@
 
 use std::cell::RefCell;
 
-use litter::{PyValue, Sandbox};
+use littrs::{PyValue, Sandbox};
 
 /// Result of an execution, serialized as JSON.
 #[derive(serde::Serialize)]
