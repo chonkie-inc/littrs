@@ -22,6 +22,12 @@ pub enum Error {
     #[error("Division by zero")]
     DivisionByZero,
 
+    #[error("Instruction limit exceeded (limit: {0})")]
+    InstructionLimitExceeded(u64),
+
+    #[error("Recursion limit exceeded (limit: {0})")]
+    RecursionLimitExceeded(usize),
+
     /// Rich diagnostic error with source context, labels, notes, and help.
     #[error("{0}")]
     Diagnostic(Diagnostic),

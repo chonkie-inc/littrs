@@ -1,4 +1,4 @@
-use littrs::{PyValue, Sandbox};
+use littrs::{PyValue, ResourceLimits, Sandbox};
 
 #[test]
 fn test_basic_arithmetic() {
@@ -549,4 +549,1014 @@ fn test_list_comprehension_multiple_filters() {
             PyValue::Int(18),
         ])
     );
+}
+
+// ============================================================================
+// Function definitions (def)
+// ============================================================================
+
+#[test]
+fn test_function_definition_basic() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def double(x):
+    return x * 2
+double(21)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(42));
+}
+
+#[test]
+fn test_function_multiple_params() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def add(a, b):
+    return a + b
+add(10, 32)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(42));
+}
+
+#[test]
+fn test_function_implicit_return_none() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def noop():
+    x = 1
+noop()
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::None);
+}
+
+#[test]
+fn test_function_calling_tools() {
+    let mut sandbox = Sandbox::new();
+    sandbox.register_fn("double_it", |args| {
+        let n = args[0].as_int().unwrap_or(0);
+        PyValue::Int(n * 2)
+    });
+
+    let result = sandbox
+        .execute(
+            r#"
+def process(x):
+    return double_it(x) + 1
+process(10)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(21));
+}
+
+#[test]
+fn test_nested_function_calls() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def square(x):
+    return x * x
+def sum_of_squares(a, b):
+    return square(a) + square(b)
+sum_of_squares(3, 4)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(25));
+}
+
+#[test]
+fn test_function_with_loop() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def factorial(n):
+    result = 1
+    for i in range(1, n + 1):
+        result = result * i
+    return result
+factorial(5)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(120));
+}
+
+#[test]
+fn test_function_scope_isolation() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+x = 100
+def f():
+    x = 5
+    return x
+result = f()
+x + result
+"#,
+        )
+        .unwrap();
+    // f() returns 5, global x is still 100
+    assert_eq!(result, PyValue::Int(105));
+}
+
+#[test]
+fn test_function_reads_globals() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+multiplier = 10
+def scale(x):
+    return x * multiplier
+scale(5)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(50));
+}
+
+#[test]
+fn test_recursive_function() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def fib(n):
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+fib(10)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(55));
+}
+
+// ============================================================================
+// Break and continue
+// ============================================================================
+
+#[test]
+fn test_break_in_while() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+i = 0
+while True:
+    if i >= 5:
+        break
+    i = i + 1
+i
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(5));
+}
+
+#[test]
+fn test_break_in_for() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+found = -1
+for x in range(100):
+    if x * x > 50:
+        found = x
+        break
+found
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(8)); // 8*8 = 64 > 50
+}
+
+#[test]
+fn test_continue_in_for() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+total = 0
+for i in range(10):
+    if i % 2 == 0:
+        continue
+    total = total + i
+total
+"#,
+        )
+        .unwrap();
+    // Sum of odd numbers 1+3+5+7+9 = 25
+    assert_eq!(result, PyValue::Int(25));
+}
+
+#[test]
+fn test_continue_in_while() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = []
+i = 0
+while i < 10:
+    i = i + 1
+    if i % 3 == 0:
+        continue
+    result.append(i)
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(4),
+            PyValue::Int(5),
+            PyValue::Int(7),
+            PyValue::Int(8),
+            PyValue::Int(10),
+        ])
+    );
+}
+
+#[test]
+fn test_break_in_nested_loops() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = []
+for i in range(5):
+    for j in range(5):
+        if j >= 2:
+            break
+        result.append(i * 10 + j)
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(0),
+            PyValue::Int(1),
+            PyValue::Int(10),
+            PyValue::Int(11),
+            PyValue::Int(20),
+            PyValue::Int(21),
+            PyValue::Int(30),
+            PyValue::Int(31),
+            PyValue::Int(40),
+            PyValue::Int(41),
+        ])
+    );
+}
+
+// ============================================================================
+// Resource limits
+// ============================================================================
+
+#[test]
+fn test_instruction_limit_infinite_loop() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_instructions: Some(1_000),
+        ..Default::default()
+    });
+
+    let err = sandbox.execute("while True: pass").unwrap_err();
+    assert!(err.to_string().contains("Instruction limit"));
+}
+
+#[test]
+fn test_recursion_limit() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_recursion_depth: Some(10),
+        ..Default::default()
+    });
+
+    let err = sandbox
+        .execute(
+            r#"
+def recurse(n):
+    return recurse(n + 1)
+recurse(0)
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Recursion limit"));
+}
+
+#[test]
+fn test_within_limits_succeeds() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_instructions: Some(10_000),
+        max_recursion_depth: Some(50),
+    });
+
+    let result = sandbox
+        .execute(
+            r#"
+total = 0
+for i in range(100):
+    total = total + i
+total
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(4950));
+}
+
+#[test]
+fn test_instruction_limit_only() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_instructions: Some(500),
+        max_recursion_depth: None,
+    });
+
+    // Short code should succeed
+    let result = sandbox.execute("1 + 2").unwrap();
+    assert_eq!(result, PyValue::Int(3));
+}
+
+#[test]
+fn test_recursion_limit_only() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_instructions: None,
+        max_recursion_depth: Some(5),
+    });
+
+    // Moderate recursion within limit should succeed
+    let result = sandbox
+        .execute(
+            r#"
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+factorial(4)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(24));
+}
+
+// ============================================================================
+// Default parameters
+// ============================================================================
+
+#[test]
+fn test_default_param_basic() {
+    let mut sandbox = Sandbox::new();
+
+    // Call with both args
+    let result = sandbox
+        .execute(
+            r#"
+def add(x, y=10):
+    return x + y
+add(5, 3)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(8));
+}
+
+#[test]
+fn test_default_param_uses_default() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def add(x, y=10):
+    return x + y
+add(5)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(15));
+}
+
+#[test]
+fn test_default_param_multiple_defaults() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, b=2, c=3):
+    return a + b + c
+[f(1), f(1, 20), f(1, 20, 30)]
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(6),
+            PyValue::Int(24),
+            PyValue::Int(51),
+        ])
+    );
+}
+
+#[test]
+fn test_default_param_with_keyword_override() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def greet(name, greeting="Hello"):
+    return greeting + " " + name
+greet("Alice", greeting="Hi")
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("Hi Alice".to_string()));
+}
+
+#[test]
+fn test_default_param_string_default() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def greet(name, greeting="Hello"):
+    return greeting + " " + name
+greet("World")
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("Hello World".to_string()));
+}
+
+#[test]
+fn test_default_param_none_default() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(x, y=None):
+    if y is None:
+        return x
+    return x + y
+[f(5), f(5, 3)]
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![PyValue::Int(5), PyValue::Int(8)])
+    );
+}
+
+#[test]
+fn test_default_param_negative_default() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(x, y=-1):
+    return x + y
+f(10)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(9));
+}
+
+#[test]
+fn test_default_param_too_few_args_error() {
+    let mut sandbox = Sandbox::new();
+
+    let err = sandbox
+        .execute(
+            r#"
+def f(a, b, c=3):
+    return a + b + c
+f(1)
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("missing"));
+}
+
+// ============================================================================
+// Try/Except
+// ============================================================================
+
+#[test]
+fn test_try_except_basic() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "no error"
+try:
+    x = 1 / 0
+except:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}
+
+#[test]
+fn test_try_except_no_error() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "before"
+try:
+    result = "success"
+except:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("success".to_string()));
+}
+
+#[test]
+fn test_try_except_typed() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    x = 1 / 0
+except ZeroDivisionError:
+    result = "zero div"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("zero div".to_string()));
+}
+
+#[test]
+fn test_try_except_with_as() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+try:
+    x = 1 / 0
+except ZeroDivisionError as e:
+    msg = e
+msg
+"#,
+        )
+        .unwrap();
+    // The error message should contain "Division by zero"
+    if let PyValue::Str(s) = result {
+        assert!(s.contains("ivision by zero") || s.contains("zero"));
+    } else {
+        panic!("Expected string, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_try_except_type_mismatch_propagates() {
+    let mut sandbox = Sandbox::new();
+
+    // Try catching NameError when a ZeroDivisionError occurs — should not catch
+    let err = sandbox
+        .execute(
+            r#"
+try:
+    x = 1 / 0
+except NameError:
+    pass
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("ivision by zero"));
+}
+
+#[test]
+fn test_try_except_multiple_handlers() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    x = undefined_var
+except ZeroDivisionError:
+    result = "zero div"
+except NameError:
+    result = "name error"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("name error".to_string()));
+}
+
+#[test]
+fn test_try_except_catch_all() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    x = undefined_var
+except Exception:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}
+
+#[test]
+fn test_raise_basic() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    raise ValueError("bad value")
+except ValueError:
+    result = "caught value error"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught value error".to_string()));
+}
+
+#[test]
+fn test_raise_with_message_as() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+try:
+    raise ValueError("test message")
+except ValueError as e:
+    msg = e
+msg
+"#,
+        )
+        .unwrap();
+    if let PyValue::Str(s) = result {
+        assert!(s.contains("test message"));
+    } else {
+        panic!("Expected string, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_bare_raise() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    try:
+        x = 1 / 0
+    except ZeroDivisionError:
+        raise
+except:
+    result = "re-caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("re-caught".to_string()));
+}
+
+#[test]
+fn test_try_except_else() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+result = "none"
+try:
+    x = 42
+except:
+    result = "error"
+else:
+    result = "no error"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("no error".to_string()));
+}
+
+#[test]
+fn test_try_except_in_function() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def safe_divide(a, b):
+    try:
+        return a / b
+    except ZeroDivisionError:
+        return -1
+safe_divide(10, 0)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(-1));
+}
+
+#[test]
+fn test_uncaught_exception_propagates() {
+    let mut sandbox = Sandbox::new();
+
+    let err = sandbox
+        .execute(
+            r#"
+raise ValueError("this is not caught")
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("ValueError"));
+}
+
+#[test]
+fn test_resource_limit_uncatchable() {
+    let mut sandbox = Sandbox::new();
+    sandbox.set_limits(ResourceLimits {
+        max_instructions: Some(100),
+        ..Default::default()
+    });
+
+    let err = sandbox
+        .execute(
+            r#"
+try:
+    while True:
+        pass
+except:
+    pass
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("Instruction limit"));
+}
+
+// ============================================================================
+// *args and **kwargs
+// ============================================================================
+
+#[test]
+fn test_varargs_basic() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(*args):
+    return args
+f(1, 2, 3)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_varargs_with_positional() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, *args):
+    return [a, args]
+f(1, 2, 3)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::List(vec![PyValue::Int(2), PyValue::Int(3)])
+        ])
+    );
+}
+
+#[test]
+fn test_varargs_empty() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, *args):
+    return args
+f(1)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::List(vec![]));
+}
+
+#[test]
+fn test_kwargs_basic() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(**kwargs):
+    return kwargs
+f(x=1, y=2)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Dict(vec![
+            ("x".to_string(), PyValue::Int(1)),
+            ("y".to_string(), PyValue::Int(2)),
+        ])
+    );
+}
+
+#[test]
+fn test_kwargs_with_positional() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, **kwargs):
+    return [a, kwargs]
+f(1, x=2, y=3)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::Dict(vec![
+                ("x".to_string(), PyValue::Int(2)),
+                ("y".to_string(), PyValue::Int(3)),
+            ])
+        ])
+    );
+}
+
+#[test]
+fn test_kwargs_empty() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, **kwargs):
+    return kwargs
+f(1)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Dict(vec![]));
+}
+
+#[test]
+fn test_varargs_and_kwargs_combined() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def f(a, b=2, *args, **kwargs):
+    return [a, b, args, kwargs]
+f(1, 10, 20, 30, x=99)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Int(1),
+            PyValue::Int(10),
+            PyValue::List(vec![PyValue::Int(20), PyValue::Int(30)]),
+            PyValue::Dict(vec![("x".to_string(), PyValue::Int(99))]),
+        ])
+    );
+}
+
+#[test]
+fn test_varargs_sum() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .execute(
+            r#"
+def my_sum(*args):
+    total = 0
+    for x in args:
+        total = total + x
+    return total
+my_sum(1, 2, 3, 4, 5)
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(15));
+}
+
+#[test]
+fn test_duplicate_keyword_error() {
+    let mut sandbox = Sandbox::new();
+
+    let err = sandbox
+        .execute(
+            r#"
+def f(a, b):
+    return a + b
+f(1, a=2)
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("multiple values"));
+}
+
+#[test]
+fn test_unexpected_keyword_without_kwargs() {
+    let mut sandbox = Sandbox::new();
+
+    let err = sandbox
+        .execute(
+            r#"
+def f(a, b):
+    return a + b
+f(1, 2, c=3)
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("unexpected keyword"));
 }

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
+use crate::compiler::Compiler;
 use crate::error::Result;
-use crate::eval::{Evaluator, ToolFn};
 use crate::tool::ToolInfo;
 use crate::value::PyValue;
+use crate::vm::{ToolFn, Vm};
 
 /// A secure Python sandbox for executing untrusted code.
 ///
@@ -34,7 +35,7 @@ use crate::value::PyValue;
 /// ```
 #[derive(Clone)]
 pub struct Sandbox {
-    evaluator: Evaluator,
+    vm: Vm,
     tool_infos: Vec<ToolInfo>,
 }
 
@@ -42,7 +43,7 @@ impl Sandbox {
     /// Create a new sandbox instance.
     pub fn new() -> Self {
         Self {
-            evaluator: Evaluator::new(),
+            vm: Vm::new(),
             tool_infos: Vec::new(),
         }
     }
@@ -72,7 +73,7 @@ impl Sandbox {
     where
         F: Fn(Vec<PyValue>) -> PyValue + Send + Sync + 'static,
     {
-        self.evaluator.register_tool(name, Arc::new(f) as ToolFn);
+        self.vm.register_tool(name, Arc::new(f) as ToolFn);
     }
 
     /// Register a tool with metadata that can be called from Python code.
@@ -111,10 +112,8 @@ impl Sandbox {
     where
         F: Fn(Vec<PyValue>) -> PyValue + Send + Sync + 'static,
     {
-        self.evaluator.register_tool_with_info(
-            info.clone(),
-            Arc::new(f) as ToolFn,
-        );
+        self.vm
+            .register_tool_with_info(info.clone(), Arc::new(f) as ToolFn);
         self.tool_infos.push(info);
     }
 
@@ -139,10 +138,8 @@ impl Sandbox {
     /// ```
     pub fn register<T: crate::tool::Tool + 'static>(&mut self, _: T) {
         let info = T::info().clone();
-        self.evaluator.register_tool_with_info(
-            info.clone(),
-            Arc::new(T::call) as ToolFn,
-        );
+        self.vm
+            .register_tool_with_info(info.clone(), Arc::new(T::call) as ToolFn);
         self.tool_infos.push(info);
     }
 
@@ -202,7 +199,7 @@ impl Sandbox {
     /// assert_eq!(result, PyValue::Int(84));
     /// ```
     pub fn set_variable(&mut self, name: impl Into<String>, value: impl Into<PyValue>) {
-        self.evaluator.set_variable(name, value.into());
+        self.vm.set_variable(name, value.into());
     }
 
     /// Execute Python code in the sandbox.
@@ -238,7 +235,8 @@ impl Sandbox {
     /// assert_eq!(result, PyValue::Int(45));
     /// ```
     pub fn execute(&mut self, code: &str) -> Result<PyValue> {
-        self.evaluator.execute(code)
+        let code_obj = Compiler::compile(code)?;
+        self.vm.execute(code_obj)
     }
 
     /// Execute Python code and capture print output.
@@ -263,15 +261,41 @@ impl Sandbox {
     /// ```
     pub fn execute_with_output(&mut self, code: &str) -> Result<ExecuteOutput> {
         // Clear any previous print output
-        self.evaluator.clear_print_buffer();
+        self.vm.clear_print_buffer();
 
         // Execute the code
-        let result = self.evaluator.execute(code)?;
+        let code_obj = Compiler::compile(code)?;
+        let result = self.vm.execute(code_obj)?;
 
         // Capture print output
-        let printed = self.evaluator.take_print_output();
+        let printed = self.vm.take_print_output();
 
         Ok(ExecuteOutput { result, printed })
+    }
+
+    /// Set resource limits for sandbox execution.
+    ///
+    /// Limits are enforced per `execute()` call. The instruction counter
+    /// resets at the start of each execution.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use littrs::{Sandbox, ResourceLimits};
+    ///
+    /// let mut sandbox = Sandbox::new();
+    /// sandbox.set_limits(ResourceLimits {
+    ///     max_instructions: Some(1_000),
+    ///     max_recursion_depth: Some(10),
+    /// });
+    ///
+    /// // This will fail with InstructionLimitExceeded
+    /// let err = sandbox.execute("while True: pass").unwrap_err();
+    /// assert!(err.to_string().contains("Instruction limit"));
+    /// ```
+    pub fn set_limits(&mut self, limits: ResourceLimits) {
+        self.vm
+            .set_limits(limits.max_instructions, limits.max_recursion_depth);
     }
 
     /// Take and clear any accumulated print output.
@@ -279,7 +303,7 @@ impl Sandbox {
     /// This is useful if you want to check what was printed after
     /// calling `execute()` multiple times.
     pub fn take_print_output(&mut self) -> Vec<String> {
-        self.evaluator.take_print_output()
+        self.vm.take_print_output()
     }
 }
 
@@ -302,6 +326,32 @@ impl ExecuteOutput {
     pub fn has_output(&self) -> bool {
         !self.printed.is_empty()
     }
+}
+
+/// Resource limits for sandbox execution.
+///
+/// Both limits are optional — `None` means unlimited. Use [`Sandbox::set_limits`]
+/// to apply limits before calling [`Sandbox::execute`].
+///
+/// # Example
+///
+/// ```
+/// use littrs::{Sandbox, ResourceLimits};
+///
+/// let mut sandbox = Sandbox::new();
+/// sandbox.set_limits(ResourceLimits {
+///     max_instructions: Some(10_000),
+///     max_recursion_depth: Some(50),
+/// });
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ResourceLimits {
+    /// Maximum number of bytecode instructions per `execute()` call.
+    /// `None` means unlimited.
+    pub max_instructions: Option<u64>,
+    /// Maximum call-stack depth for user-defined function calls.
+    /// `None` means unlimited.
+    pub max_recursion_depth: Option<usize>,
 }
 
 impl Default for Sandbox {

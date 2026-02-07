@@ -48,8 +48,22 @@
 //!
 //! ## Control Flow
 //! - `if`/`elif`/`else`
-//! - `for` loops (over lists and strings)
-//! - `while` loops
+//! - `for` loops (over lists and strings) with `break`/`continue`
+//! - `while` loops with `break`/`continue`
+//!
+//! ## Functions
+//! - `def` with positional parameters, default values, `*args`, `**kwargs`
+//! - Recursive calls
+//! - Nested function definitions
+//!
+//! ## Error Handling
+//! - `try`/`except` with typed handlers and `as` binding
+//! - `raise` with exception type and message
+//! - `else` clause on try blocks
+//!
+//! ## Resource Limits
+//! - Configurable instruction count limit (prevents infinite loops)
+//! - Configurable recursion depth limit
 //!
 //! ## Built-in Functions
 //! - `len()`, `str()`, `int()`, `float()`, `bool()`, `list()`
@@ -60,23 +74,23 @@
 //!
 //! - `import` statements
 //! - Class definitions
-//! - Function definitions (`def`)
 //! - Async/await
-//! - Comprehensions
-//! - Exceptions (try/except)
+//! - `finally` blocks
 //! - File I/O
 //! - Any standard library
 
 mod builtins;
+mod bytecode;
+mod compiler;
 mod diagnostic;
 mod error;
-mod eval;
 mod methods;
 mod operators;
 mod sandbox;
 mod slice;
 mod tool;
 mod value;
+mod vm;
 
 #[cfg(feature = "wasm")]
 mod wasm_error;
@@ -85,7 +99,7 @@ mod wasm_sandbox;
 
 pub use diagnostic::{Diagnostic, FunctionCallDiagnostic, Label, Span};
 pub use error::{Error, Result};
-pub use sandbox::{ExecuteOutput, Sandbox};
+pub use sandbox::{ExecuteOutput, ResourceLimits, Sandbox};
 pub use tool::{ArgInfo, Tool, ToolCallError, ToolInfo};
 pub use value::{FromPyValue, PyValue, TypeError};
 

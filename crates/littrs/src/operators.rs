@@ -5,15 +5,18 @@
 //! - Bitwise: |, ^, &, <<, >>
 //! - Comparison: ==, !=, <, <=, >, >=, in, not in, is, is not
 
-use rustpython_parser::ast::{CmpOp, Operator};
-
+use crate::bytecode::{BinOp, CmpOp};
 use crate::error::{Error, Result};
 use crate::value::PyValue;
 
 /// Apply a binary operator to two values.
-pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyValue> {
+///
+/// Handles arithmetic (+, -, *, /, //, %, **), bitwise (|, ^, &, <<, >>),
+/// and special cases like string concatenation, string/list repetition,
+/// and list concatenation.
+pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValue> {
     match op {
-        Operator::Add => match (left, right) {
+        BinOp::Add => match (left, right) {
             (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(a + b)),
             (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(a + b)),
             (PyValue::Int(a), PyValue::Float(b)) => Ok(PyValue::Float(*a as f64 + b)),
@@ -29,8 +32,8 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 got: format!("{} and {}", left.type_name(), right.type_name()),
             }),
         },
-        Operator::Sub => numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
-        Operator::Mult => match (left, right) {
+        BinOp::Sub => numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
+        BinOp::Mult => match (left, right) {
             (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(a * b)),
             (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(a * b)),
             (PyValue::Int(a), PyValue::Float(b)) => Ok(PyValue::Float(*a as f64 * b)),
@@ -58,7 +61,7 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 got: format!("{} and {}", left.type_name(), right.type_name()),
             }),
         },
-        Operator::Div => {
+        BinOp::Div => {
             let a = left.as_float().ok_or_else(|| Error::Type {
                 expected: "number".to_string(),
                 got: left.type_name().to_string(),
@@ -73,7 +76,7 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 Ok(PyValue::Float(a / b))
             }
         }
-        Operator::FloorDiv => {
+        BinOp::FloorDiv => {
             let a = left.as_float().ok_or_else(|| Error::Type {
                 expected: "number".to_string(),
                 got: left.type_name().to_string(),
@@ -93,7 +96,7 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 }
             }
         }
-        Operator::Mod => match (left, right) {
+        BinOp::Mod => match (left, right) {
             (PyValue::Int(a), PyValue::Int(b)) => {
                 if *b == 0 {
                     Err(Error::DivisionByZero)
@@ -117,7 +120,7 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 }
             }
         },
-        Operator::Pow => {
+        BinOp::Pow => {
             let a = left.as_float().ok_or_else(|| Error::Type {
                 expected: "number".to_string(),
                 got: left.type_name().to_string(),
@@ -138,16 +141,18 @@ pub fn apply_binop(op: &Operator, left: &PyValue, right: &PyValue) -> Result<PyV
                 Ok(PyValue::Float(result))
             }
         }
-        Operator::BitOr => int_binop(left, right, |a, b| a | b),
-        Operator::BitXor => int_binop(left, right, |a, b| a ^ b),
-        Operator::BitAnd => int_binop(left, right, |a, b| a & b),
-        Operator::LShift => int_binop(left, right, |a, b| a << b),
-        Operator::RShift => int_binop(left, right, |a, b| a >> b),
-        _ => Err(Error::Unsupported(format!("Operator {:?}", op))),
+        BinOp::BitOr => int_binop(left, right, |a, b| a | b),
+        BinOp::BitXor => int_binop(left, right, |a, b| a ^ b),
+        BinOp::BitAnd => int_binop(left, right, |a, b| a & b),
+        BinOp::LShift => int_binop(left, right, |a, b| a << b),
+        BinOp::RShift => int_binop(left, right, |a, b| a >> b),
     }
 }
 
 /// Apply a comparison operator to two values.
+///
+/// Returns a boolean result. For `In`/`NotIn`, checks membership in lists,
+/// strings, and dicts. For `Is`/`IsNot`, only `None is None` is true.
 pub fn apply_cmpop(op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> {
     match op {
         CmpOp::Eq => Ok(left == right),
