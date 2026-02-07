@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wasmtime::*;
-use wasmtime_wasi::preview1::{self, WasiP1Ctx};
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::p1::WasiP1Ctx;
 
-use crate::wasm_error::{Error, Result};
 use crate::PyValue;
+use crate::wasm_error::{Error, Result};
 
 /// Embedded WASM sandbox module.
 /// This is the pre-compiled littrs-wasm binary.
@@ -29,7 +29,7 @@ pub struct WasmSandboxConfig {
 impl Default for WasmSandboxConfig {
     fn default() -> Self {
         Self {
-            fuel: Some(10_000_000), // 10M fuel units
+            fuel: Some(10_000_000),                   // 10M fuel units
             max_memory_bytes: Some(64 * 1024 * 1024), // 64MB
             timeout_ms: None,
         }
@@ -167,7 +167,7 @@ impl WasmSandbox {
 
         // Create linker with WASI
         let mut linker = Linker::new(&engine);
-        preview1::add_to_linker_sync(&mut linker, |s: &mut SandboxState| &mut s.wasi)?;
+        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s: &mut SandboxState| &mut s.wasi)?;
 
         // Add our custom host function for tool calls
         linker.func_wrap(
@@ -298,7 +298,11 @@ impl WasmSandbox {
     }
 
     /// Set a variable in the sandbox.
-    pub fn set_variable(&mut self, name: impl Into<String>, value: impl Into<PyValue>) -> Result<()> {
+    pub fn set_variable(
+        &mut self,
+        name: impl Into<String>,
+        value: impl Into<PyValue>,
+    ) -> Result<()> {
         let name = name.into();
         let value = value.into();
 

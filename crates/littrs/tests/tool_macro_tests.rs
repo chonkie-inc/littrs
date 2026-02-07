@@ -90,7 +90,10 @@ fn test_tool_call_returns_pyvalue() {
     let result = get_weather::call(vec![PyValue::Str("Paris".to_string())]);
     if let PyValue::Dict(pairs) = result {
         let city = pairs.iter().find(|(k, _)| k == "city");
-        assert_eq!(city, Some(&("city".to_string(), PyValue::Str("Paris".to_string()))));
+        assert_eq!(
+            city,
+            Some(&("city".to_string(), PyValue::Str("Paris".to_string())))
+        );
     } else {
         panic!("Expected Dict, got {:?}", result);
     }
@@ -106,8 +109,16 @@ fn test_tool_call_with_wrong_type() {
         let error = pairs.iter().find(|(k, _)| k == "error");
         assert!(error.is_some(), "Expected error in result");
         if let Some((_, PyValue::Str(msg))) = error {
-            assert!(msg.contains("argument 'a'"), "Error should mention argument name: {}", msg);
-            assert!(msg.contains("int") || msg.contains("str"), "Error should mention types: {}", msg);
+            assert!(
+                msg.contains("argument 'a'"),
+                "Error should mention argument name: {}",
+                msg
+            );
+            assert!(
+                msg.contains("int") || msg.contains("str"),
+                "Error should mention types: {}",
+                msg
+            );
         }
     } else {
         panic!("Expected error Dict, got {:?}", result);
@@ -124,8 +135,16 @@ fn test_tool_call_with_missing_required_arg() {
         let error = pairs.iter().find(|(k, _)| k == "error");
         assert!(error.is_some(), "Expected error in result");
         if let Some((_, PyValue::Str(msg))) = error {
-            assert!(msg.contains("missing"), "Error should mention missing: {}", msg);
-            assert!(msg.contains("a"), "Error should mention argument name: {}", msg);
+            assert!(
+                msg.contains("missing"),
+                "Error should mention missing: {}",
+                msg
+            );
+            assert!(
+                msg.contains("a"),
+                "Error should mention argument name: {}",
+                msg
+            );
         }
     } else {
         panic!("Expected error Dict, got {:?}", result);

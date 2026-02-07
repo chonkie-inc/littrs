@@ -157,7 +157,7 @@ pub struct ToolInfo {
     pub description: String,
     /// The arguments
     pub args: Vec<ArgInfo>,
-    /// The return type (e.g., "dict", "str", "list[int]")
+    /// The return type (e.g., "dict", "str", "list\[int\]")
     pub returns: String,
 }
 
@@ -179,7 +179,8 @@ impl ToolInfo {
         python_type: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
-        self.args.push(ArgInfo::required(name, python_type, description));
+        self.args
+            .push(ArgInfo::required(name, python_type, description));
         self
     }
 
@@ -190,7 +191,8 @@ impl ToolInfo {
         python_type: impl Into<String>,
         description: impl Into<String>,
     ) -> Self {
-        self.args.push(ArgInfo::optional(name, python_type, description));
+        self.args
+            .push(ArgInfo::optional(name, python_type, description));
         self
     }
 

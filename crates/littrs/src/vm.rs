@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::builtins::{try_builtin, BuiltinResult};
+use crate::builtins::{BuiltinResult, try_builtin};
 use crate::bytecode::{CodeObject, ExceptionEntry, FunctionDef, Op, UnaryOp};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::error::{Error, Result};
@@ -222,10 +222,10 @@ impl Vm {
 
             // Check instruction limit (uncatchable)
             self.instruction_count += 1;
-            if let Some(limit) = self.instruction_limit {
-                if self.instruction_count > limit {
-                    return Err(Error::InstructionLimitExceeded(limit));
-                }
+            if let Some(limit) = self.instruction_limit
+                && self.instruction_count > limit
+            {
+                return Err(Error::InstructionLimitExceeded(limit));
             }
 
             // Dispatch the instruction, catching errors for exception handling
@@ -393,8 +393,7 @@ impl Vm {
             Op::StoreSubscript(var_idx) => {
                 let index = self.stack.pop().unwrap_or(PyValue::None);
                 let value = self.stack.pop().unwrap_or(PyValue::None);
-                let var_name =
-                    frames.last().unwrap().code.names[var_idx as usize].clone();
+                let var_name = frames.last().unwrap().code.names[var_idx as usize].clone();
                 self.store_subscript(frames, &var_name, &index, value)?;
             }
 
@@ -437,9 +436,7 @@ impl Vm {
                 let val = self.stack.pop().unwrap_or(PyValue::None);
                 let items = match val {
                     PyValue::List(items) => items,
-                    PyValue::Str(s) => {
-                        s.chars().map(|c| PyValue::Str(c.to_string())).collect()
-                    }
+                    PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
                     other => {
                         return Err(Error::Type {
                             expected: "iterable".to_string(),
@@ -471,31 +468,20 @@ impl Vm {
 
             // --- Function calls ---
             Op::CallFunction(name_idx, n_args) => {
-                let name =
-                    frames.last().unwrap().code.names[name_idx as usize].clone();
+                let name = frames.last().unwrap().code.names[name_idx as usize].clone();
                 self.call_function(frames, &name, n_args as usize, 0, span)?;
             }
             Op::CallFunctionKw(name_idx, n_pos, n_kw) => {
-                let name =
-                    frames.last().unwrap().code.names[name_idx as usize].clone();
-                self.call_function(
-                    frames,
-                    &name,
-                    n_pos as usize,
-                    n_kw as usize,
-                    span,
-                )?;
+                let name = frames.last().unwrap().code.names[name_idx as usize].clone();
+                self.call_function(frames, &name, n_pos as usize, n_kw as usize, span)?;
             }
             Op::CallMethod(method_idx, n_args) => {
-                let method =
-                    frames.last().unwrap().code.names[method_idx as usize].clone();
+                let method = frames.last().unwrap().code.names[method_idx as usize].clone();
                 self.call_method(&method, n_args as usize)?;
             }
             Op::CallMutMethod(var_idx, method_idx, n_args) => {
-                let var_name =
-                    frames.last().unwrap().code.names[var_idx as usize].clone();
-                let method =
-                    frames.last().unwrap().code.names[method_idx as usize].clone();
+                let var_name = frames.last().unwrap().code.names[var_idx as usize].clone();
+                let method = frames.last().unwrap().code.names[method_idx as usize].clone();
                 self.call_mut_method(frames, &var_name, &method, n_args as usize)?;
             }
 
@@ -520,10 +506,8 @@ impl Vm {
 
             // --- Function definitions ---
             Op::MakeFunction(i) => {
-                let func_def =
-                    frames.last().unwrap().code.functions[i as usize].clone();
-                self.user_functions
-                    .insert(func_def.name.clone(), func_def);
+                let func_def = frames.last().unwrap().code.functions[i as usize].clone();
+                self.user_functions.insert(func_def.name.clone(), func_def);
                 self.stack.push(PyValue::None);
             }
             Op::ReturnValue => {
@@ -618,10 +602,7 @@ impl Vm {
                 frames.last().unwrap().ip.saturating_sub(1)
             };
 
-            let handler = find_handler(
-                &frames.last().unwrap().code.exception_table,
-                ip_to_check,
-            );
+            let handler = find_handler(&frames.last().unwrap().code.exception_table, ip_to_check);
 
             if let Some(entry) = handler {
                 let handler_target = entry.handler;
@@ -630,9 +611,8 @@ impl Vm {
 
                 // Read stack_base and var name before taking mutable ref
                 let stack_base = frames.last().unwrap().stack_base;
-                let var_info = var_name_idx.map(|idx| {
-                    frames.last().unwrap().code.names[idx as usize].clone()
-                });
+                let var_info =
+                    var_name_idx.map(|idx| frames.last().unwrap().code.names[idx as usize].clone());
 
                 // Clean up the stack back to this frame's base
                 self.stack.truncate(stack_base);
@@ -741,9 +721,10 @@ impl Vm {
             (PyValue::List(items), PyValue::Int(idx)) => {
                 let len = items.len() as i64;
                 let actual = if *idx < 0 { len + idx } else { *idx } as usize;
-                items.get(actual).cloned().ok_or_else(|| {
-                    Error::Runtime(format!("list index out of range: {}", idx))
-                })
+                items
+                    .get(actual)
+                    .cloned()
+                    .ok_or_else(|| Error::Runtime(format!("list index out of range: {}", idx)))
             }
             (PyValue::Str(s), PyValue::Int(idx)) => {
                 let len = s.len() as i64;
@@ -751,9 +732,7 @@ impl Vm {
                 s.chars()
                     .nth(actual)
                     .map(|c| PyValue::Str(c.to_string()))
-                    .ok_or_else(|| {
-                        Error::Runtime(format!("string index out of range: {}", idx))
-                    })
+                    .ok_or_else(|| Error::Runtime(format!("string index out of range: {}", idx)))
             }
             (PyValue::Dict(pairs), PyValue::Str(key)) => pairs
                 .iter()
@@ -820,12 +799,10 @@ impl Vm {
         let upper = to_opt(stop)?;
         let step_val = to_opt(step)?;
 
-        if let Some(s) = step_val {
-            if s == 0 {
-                return Err(Error::Runtime(
-                    "slice step cannot be zero".to_string(),
-                ));
-            }
+        if let Some(s) = step_val
+            && s == 0
+        {
+            return Err(Error::Runtime("slice step cannot be zero".to_string()));
         }
 
         match obj {
@@ -865,7 +842,7 @@ impl Vm {
                 _ => {
                     return Err(Error::Runtime(
                         "keyword argument name must be a string".to_string(),
-                    ))
+                    ));
                 }
             };
             kw_pairs.push((key, value));
@@ -944,6 +921,7 @@ impl Vm {
             }
 
             // Step 3: Fill missing params from defaults
+            #[allow(clippy::needless_range_loop)]
             for i in 0..n_params {
                 if bound[i].is_none() {
                     let default_idx = i as isize - n_required as isize;
@@ -959,10 +937,10 @@ impl Vm {
             }
 
             // Check recursion limit before pushing a new frame
-            if let Some(limit) = self.recursion_limit {
-                if frames.len() >= limit {
-                    return Err(Error::RecursionLimitExceeded(limit));
-                }
+            if let Some(limit) = self.recursion_limit
+                && frames.len() >= limit
+            {
+                return Err(Error::RecursionLimitExceeded(limit));
             }
 
             // Build locals from parameters
@@ -1029,10 +1007,7 @@ impl Vm {
                         ))
                         .with_source(source)
                         .with_label(span, "unexpected argument")
-                        .with_note(format!(
-                            "function signature: {}({})",
-                            name, signature
-                        ))
+                        .with_note(format!("function signature: {}({})", name, signature))
                         .with_help(format!(
                             "valid arguments are: {}",
                             tool.arg_names.join(", ")
@@ -1049,9 +1024,7 @@ impl Vm {
 
         // Validate argument types if the tool has info
         if let Some(ref info) = tool.info {
-            for (i, (arg, arg_info)) in
-                final_args.iter().zip(info.args.iter()).enumerate()
-            {
+            for (i, (arg, arg_info)) in final_args.iter().zip(info.args.iter()).enumerate() {
                 if !arg_info.required && matches!(arg, PyValue::None) {
                     continue;
                 }
@@ -1138,10 +1111,10 @@ impl Vm {
         name: &str,
     ) -> Result<&'a mut PyValue> {
         // Check locals in the current frame first
-        if let Some(frame) = frames.last_mut() {
-            if frame.locals.contains_key(name) {
-                return Ok(frame.locals.get_mut(name).unwrap());
-            }
+        if let Some(frame) = frames.last_mut()
+            && frame.locals.contains_key(name)
+        {
+            return Ok(frame.locals.get_mut(name).unwrap());
         }
         // Then globals
         if self.globals.contains_key(name) {
@@ -1213,10 +1186,7 @@ impl Vm {
                         "parameter `{}` of `{}()` expects type `{}`",
                         arg_name, func_name, expected_type
                     ))
-                    .with_note(format!(
-                        "function signature: {}({})",
-                        func_name, signature
-                    ))
+                    .with_note(format!("function signature: {}({})", func_name, signature))
                     .with_help(format!(
                         "the value `{}` has type `{}`, but `{}` is required",
                         value.to_print_string(),

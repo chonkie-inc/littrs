@@ -6,7 +6,7 @@
 //! messages with accurate locations without ever touching the AST.
 
 use rustpython_parser::ast::{self, BoolOp, Constant, Expr, Ranged, Stmt, UnaryOp};
-use rustpython_parser::{parse, Mode};
+use rustpython_parser::{Mode, parse};
 
 use crate::bytecode::{self, BinOp, CodeObject, FunctionDef, Op};
 use crate::diagnostic::Span;
@@ -210,16 +210,14 @@ impl Compiler {
                     self.patch_jump(else_jump, self.current_offset());
                     self.compile_body(&if_stmt.orelse, is_last)?;
                     self.patch_jump(end_jump, self.current_offset());
-                } else {
-                    if is_last {
-                        let end_jump = self.emit_jump(Op::Jump, span);
-                        self.patch_jump(else_jump, self.current_offset());
-                        let none_idx = self.add_const(PyValue::None);
+                } else if is_last {
+                    let end_jump = self.emit_jump(Op::Jump, span);
+                    self.patch_jump(else_jump, self.current_offset());
+                    let none_idx = self.add_const(PyValue::None);
                     self.emit(Op::LoadConst(none_idx), span);
-                        self.patch_jump(end_jump, self.current_offset());
-                    } else {
-                        self.patch_jump(else_jump, self.current_offset());
-                    }
+                    self.patch_jump(end_jump, self.current_offset());
+                } else {
+                    self.patch_jump(else_jump, self.current_offset());
                 }
             }
 
@@ -303,24 +301,24 @@ impl Compiler {
             Stmt::Break(_) => {
                 let span = self.stmt_span(stmt);
                 if self.loop_stack.is_empty() {
-                    return Err(Error::Unsupported(
-                        "'break' outside loop".to_string(),
-                    ));
+                    return Err(Error::Unsupported("'break' outside loop".to_string()));
                 }
                 // If inside a for-loop, clean up the iterator
                 if self.loop_stack.last().unwrap().is_for_loop {
                     self.emit(Op::PopIter, span);
                 }
                 let placeholder = self.emit_jump(Op::Jump, span);
-                self.loop_stack.last_mut().unwrap().break_placeholders.push(placeholder);
+                self.loop_stack
+                    .last_mut()
+                    .unwrap()
+                    .break_placeholders
+                    .push(placeholder);
             }
 
             Stmt::Continue(_) => {
                 let span = self.stmt_span(stmt);
                 if self.loop_stack.is_empty() {
-                    return Err(Error::Unsupported(
-                        "'continue' outside loop".to_string(),
-                    ));
+                    return Err(Error::Unsupported("'continue' outside loop".to_string()));
                 }
                 let target = self.loop_stack.last().unwrap().continue_target;
                 self.emit(Op::Jump(target), span);
@@ -718,26 +716,18 @@ impl Compiler {
         }
 
         if call.keywords.is_empty() {
-            self.emit(
-                Op::CallFunction(name_idx, call.args.len() as u32),
-                span,
-            );
+            self.emit(Op::CallFunction(name_idx, call.args.len() as u32), span);
         } else {
             // Compile keyword arguments: push name string then value
             for kw in &call.keywords {
                 if let Some(ref arg_name) = kw.arg {
-                    let kw_name_idx =
-                        self.add_const(PyValue::Str(arg_name.to_string()));
+                    let kw_name_idx = self.add_const(PyValue::Str(arg_name.to_string()));
                     self.emit(Op::LoadConst(kw_name_idx), span);
                     self.compile_expr(&kw.value)?;
                 }
             }
             self.emit(
-                Op::CallFunctionKw(
-                    name_idx,
-                    call.args.len() as u32,
-                    call.keywords.len() as u32,
-                ),
+                Op::CallFunctionKw(name_idx, call.args.len() as u32, call.keywords.len() as u32),
                 span,
             );
         }
@@ -779,21 +769,13 @@ impl Compiler {
         for arg in &call.args {
             self.compile_expr(arg)?;
         }
-        self.emit(
-            Op::CallMethod(method_idx, call.args.len() as u32),
-            span,
-        );
+        self.emit(Op::CallMethod(method_idx, call.args.len() as u32), span);
 
         Ok(())
     }
 
     /// Compile a slice expression (`list[start:stop:step]`).
-    fn compile_slice(
-        &mut self,
-        value: &Expr,
-        slice: &ast::ExprSlice,
-        span: Span,
-    ) -> Result<()> {
+    fn compile_slice(&mut self, value: &Expr, slice: &ast::ExprSlice, span: Span) -> Result<()> {
         self.compile_expr(value)?;
 
         // Push start, stop, step (None if absent)
@@ -936,12 +918,7 @@ impl Compiler {
     ///     <else body if any>
     /// end:
     /// ```
-    fn compile_try(
-        &mut self,
-        try_stmt: &ast::StmtTry,
-        span: Span,
-        is_last: bool,
-    ) -> Result<()> {
+    fn compile_try(&mut self, try_stmt: &ast::StmtTry, span: Span, is_last: bool) -> Result<()> {
         use crate::bytecode::ExceptionEntry;
 
         if !try_stmt.finalbody.is_empty() {
@@ -1034,7 +1011,10 @@ impl Compiler {
         // first handler's `as` binding in the exception entry for the initial store.
         let first_var_name = try_stmt.handlers.first().and_then(|h| {
             let ast::ExceptHandler::ExceptHandler(handler) = h;
-            handler.name.as_ref().map(|name| self.add_name(name.as_str()))
+            handler
+                .name
+                .as_ref()
+                .map(|name| self.add_name(name.as_str()))
         });
 
         self.code.exception_table.push(ExceptionEntry {
@@ -1080,23 +1060,23 @@ impl Compiler {
             }
             Some(expr) => {
                 // Check if it's a call like `ValueError("message")`
-                if let Expr::Call(call) = expr.as_ref() {
-                    if let Expr::Name(name) = call.func.as_ref() {
-                        let type_name = name.id.to_string();
-                        let type_name_idx = self.add_const(PyValue::Str(type_name));
-                        self.emit(Op::LoadConst(type_name_idx), span);
+                if let Expr::Call(call) = expr.as_ref()
+                    && let Expr::Name(name) = call.func.as_ref()
+                {
+                    let type_name = name.id.to_string();
+                    let type_name_idx = self.add_const(PyValue::Str(type_name));
+                    self.emit(Op::LoadConst(type_name_idx), span);
 
-                        // Compile the first argument as the message
-                        if let Some(arg) = call.args.first() {
-                            self.compile_expr(arg)?;
-                        } else {
-                            let none_idx = self.add_const(PyValue::None);
-                            self.emit(Op::LoadConst(none_idx), span);
-                        }
-
-                        self.emit(Op::Raise, span);
-                        return Ok(());
+                    // Compile the first argument as the message
+                    if let Some(arg) = call.args.first() {
+                        self.compile_expr(arg)?;
+                    } else {
+                        let none_idx = self.add_const(PyValue::None);
+                        self.emit(Op::LoadConst(none_idx), span);
                     }
+
+                    self.emit(Op::Raise, span);
+                    return Ok(());
                 }
 
                 // `raise ExceptionType` (without call)
@@ -1122,11 +1102,7 @@ impl Compiler {
     ///
     /// Handles positional parameters with optional default values.
     /// Default values are evaluated as constant expressions at definition time.
-    fn compile_function_def(
-        &mut self,
-        func_def: &ast::StmtFunctionDef,
-        span: Span,
-    ) -> Result<()> {
+    fn compile_function_def(&mut self, func_def: &ast::StmtFunctionDef, span: Span) -> Result<()> {
         let name = func_def.name.to_string();
         let params: Vec<String> = func_def
             .args
@@ -1145,16 +1121,8 @@ impl Compiler {
         }
 
         // Read *args and **kwargs parameter names
-        let vararg = func_def
-            .args
-            .vararg
-            .as_ref()
-            .map(|v| v.arg.to_string());
-        let kwarg = func_def
-            .args
-            .kwarg
-            .as_ref()
-            .map(|v| v.arg.to_string());
+        let vararg = func_def.args.vararg.as_ref().map(|v| v.arg.to_string());
+        let kwarg = func_def.args.kwarg.as_ref().map(|v| v.arg.to_string());
 
         // Compile the function body into a separate CodeObject
         let mut sub_compiler = Compiler {
@@ -1175,7 +1143,7 @@ impl Compiler {
             .code
             .instructions
             .last()
-            .map_or(true, |op| !matches!(op, Op::ReturnValue));
+            .is_none_or(|op| !matches!(op, Op::ReturnValue));
 
         if needs_implicit_return {
             let none_idx = sub_compiler.add_const(PyValue::None);
@@ -1261,7 +1229,7 @@ fn eval_constant(constant: &Constant) -> Result<PyValue> {
         Constant::Str(s) => Ok(PyValue::Str(s.clone())),
         Constant::Bytes(_) => Err(Error::Unsupported("Bytes literals".to_string())),
         Constant::Tuple(items) => {
-            let values: Result<Vec<PyValue>> = items.iter().map(|c| eval_constant(c)).collect();
+            let values: Result<Vec<PyValue>> = items.iter().map(eval_constant).collect();
             Ok(PyValue::List(values?))
         }
         Constant::Complex { .. } => Err(Error::Unsupported("Complex numbers".to_string())),

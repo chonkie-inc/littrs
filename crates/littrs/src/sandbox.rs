@@ -117,7 +117,7 @@ impl Sandbox {
         self.tool_infos.push(info);
     }
 
-    /// Register a tool using the [`Tool`] trait.
+    /// Register a tool using the [`Tool`](crate::Tool) trait.
     ///
     /// This is the most ergonomic way to register tools created with the
     /// `#[tool]` macro.

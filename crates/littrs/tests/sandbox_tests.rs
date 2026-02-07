@@ -185,10 +185,7 @@ fn test_builtin_sum_min_max() {
     );
     assert_eq!(sandbox.execute("min(5, 3, 8)").unwrap(), PyValue::Int(3));
     assert_eq!(sandbox.execute("max(5, 3, 8)").unwrap(), PyValue::Int(8));
-    assert_eq!(
-        sandbox.execute("min([5, 3, 8])").unwrap(),
-        PyValue::Int(3)
-    );
+    assert_eq!(sandbox.execute("min([5, 3, 8])").unwrap(), PyValue::Int(3));
 }
 
 #[test]
@@ -383,10 +380,7 @@ fn test_tool_with_keyword_arguments() {
 
     sandbox.register_tool(info, |args| {
         let name = args.get(0).and_then(|v| v.as_str()).unwrap_or("World");
-        let greeting = args
-            .get(1)
-            .and_then(|v| v.as_str())
-            .unwrap_or("Hello");
+        let greeting = args.get(1).and_then(|v| v.as_str()).unwrap_or("Hello");
         PyValue::Str(format!("{}, {}!", greeting, name))
     });
 
@@ -410,7 +404,9 @@ fn test_tool_with_keyword_arguments() {
 
     // Test with keyword args in different order
     assert_eq!(
-        sandbox.execute("greet(greeting='Welcome', name='Dave')").unwrap(),
+        sandbox
+            .execute("greet(greeting='Welcome', name='Dave')")
+            .unwrap(),
         PyValue::Str("Welcome, Dave!".to_string())
     );
 }
@@ -465,7 +461,9 @@ fn test_list_comprehension_with_filter() {
 
     // List comprehension with if filter
     assert_eq!(
-        sandbox.execute("[x for x in range(10) if x % 2 == 0]").unwrap(),
+        sandbox
+            .execute("[x for x in range(10) if x % 2 == 0]")
+            .unwrap(),
         PyValue::List(vec![
             PyValue::Int(0),
             PyValue::Int(2),
@@ -477,12 +475,10 @@ fn test_list_comprehension_with_filter() {
 
     // Filter with expression
     assert_eq!(
-        sandbox.execute("[x * 2 for x in range(5) if x > 1]").unwrap(),
-        PyValue::List(vec![
-            PyValue::Int(4),
-            PyValue::Int(6),
-            PyValue::Int(8),
-        ])
+        sandbox
+            .execute("[x * 2 for x in range(5) if x > 1]")
+            .unwrap(),
+        PyValue::List(vec![PyValue::Int(4), PyValue::Int(6), PyValue::Int(8),])
     );
 }
 
@@ -525,12 +521,14 @@ fn test_list_comprehension_nested() {
 
     // Nested comprehension (flattening)
     assert_eq!(
-        sandbox.execute("[x * y for x in range(1, 3) for y in range(1, 3)]").unwrap(),
+        sandbox
+            .execute("[x * y for x in range(1, 3) for y in range(1, 3)]")
+            .unwrap(),
         PyValue::List(vec![
-            PyValue::Int(1),  // 1*1
-            PyValue::Int(2),  // 1*2
-            PyValue::Int(2),  // 2*1
-            PyValue::Int(4),  // 2*2
+            PyValue::Int(1), // 1*1
+            PyValue::Int(2), // 1*2
+            PyValue::Int(2), // 2*1
+            PyValue::Int(4), // 2*2
         ])
     );
 }
@@ -541,7 +539,9 @@ fn test_list_comprehension_multiple_filters() {
 
     // Multiple if conditions
     assert_eq!(
-        sandbox.execute("[x for x in range(20) if x % 2 == 0 if x % 3 == 0]").unwrap(),
+        sandbox
+            .execute("[x for x in range(20) if x % 2 == 0 if x % 3 == 0]")
+            .unwrap(),
         PyValue::List(vec![
             PyValue::Int(0),
             PyValue::Int(6),
@@ -988,11 +988,7 @@ def f(a, b=2, c=3):
         .unwrap();
     assert_eq!(
         result,
-        PyValue::List(vec![
-            PyValue::Int(6),
-            PyValue::Int(24),
-            PyValue::Int(51),
-        ])
+        PyValue::List(vec![PyValue::Int(6), PyValue::Int(24), PyValue::Int(51),])
     );
 }
 

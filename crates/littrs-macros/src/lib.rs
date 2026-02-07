@@ -30,9 +30,9 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::{
+    Attribute, Expr, FnArg, ItemFn, Lit, LitStr, Meta, Pat, PatType, ReturnType, Token, Type,
     parse::{Parse, ParseStream},
-    parse_macro_input, Attribute, Expr, FnArg, ItemFn, Lit, LitStr, Meta, Pat, PatType,
-    ReturnType, Token, Type,
+    parse_macro_input,
 };
 
 /// Parsed arguments for the #[tool(...)] attribute
@@ -86,14 +86,12 @@ fn parse_doc_comments(attrs: &[Attribute]) -> ParsedDocs {
 
     // Extract all doc comment lines
     for attr in attrs {
-        if attr.path().is_ident("doc") {
-            if let Meta::NameValue(meta) = &attr.meta {
-                if let Expr::Lit(expr_lit) = &meta.value {
-                    if let Lit::Str(lit_str) = &expr_lit.lit {
-                        lines.push(lit_str.value());
-                    }
-                }
-            }
+        if attr.path().is_ident("doc")
+            && let Meta::NameValue(meta) = &attr.meta
+            && let Expr::Lit(expr_lit) = &meta.value
+            && let Lit::Str(lit_str) = &expr_lit.lit
+        {
+            lines.push(lit_str.value());
         }
     }
 
@@ -133,11 +131,11 @@ fn parse_doc_comments(attrs: &[Attribute]) -> ParsedDocs {
             }
 
             // Continuation of previous arg description
-            if let Some((_, ref mut desc)) = current_arg {
-                if !trimmed.is_empty() {
-                    desc.push(' ');
-                    desc.push_str(trimmed);
-                }
+            if let Some((_, ref mut desc)) = current_arg
+                && !trimmed.is_empty()
+            {
+                desc.push(' ');
+                desc.push_str(trimmed);
             }
         } else {
             // Before Args section - this is part of the description
@@ -205,9 +203,7 @@ fn rust_type_to_python(ty: &Type) -> String {
             };
             format!("list[{}]", inner_py)
         }
-        _ if ty_str.starts_with("HashMap<")
-            || ty_str.starts_with("std::collections::HashMap<") =>
-        {
+        _ if ty_str.starts_with("HashMap<") || ty_str.starts_with("std::collections::HashMap<") => {
             "dict".to_string()
         }
         "PyValue" => "any".to_string(),
@@ -220,7 +216,6 @@ fn is_option_type(ty: &Type) -> bool {
     let ty_str = quote!(#ty).to_string().replace(" ", "");
     ty_str.starts_with("Option<")
 }
-
 
 /// The `#[tool]` attribute macro for defining sandbox tools.
 ///
@@ -285,51 +280,51 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut arg_conversions = Vec::new();
 
     for (i, arg) in input_fn.sig.inputs.iter().enumerate() {
-        if let FnArg::Typed(PatType { pat, ty, .. }) = arg {
-            if let Pat::Ident(pat_ident) = pat.as_ref() {
-                let arg_name = &pat_ident.ident;
-                let arg_name_str = arg_name.to_string();
-                let python_type = rust_type_to_python(ty);
-                let is_optional = is_option_type(ty);
-                // Get arg description from parsed docs
-                let doc = parsed_docs
-                    .args
-                    .get(&arg_name_str)
-                    .cloned()
-                    .unwrap_or_default();
+        if let FnArg::Typed(PatType { pat, ty, .. }) = arg
+            && let Pat::Ident(pat_ident) = pat.as_ref()
+        {
+            let arg_name = &pat_ident.ident;
+            let arg_name_str = arg_name.to_string();
+            let python_type = rust_type_to_python(ty);
+            let is_optional = is_option_type(ty);
+            // Get arg description from parsed docs
+            let doc = parsed_docs
+                .args
+                .get(&arg_name_str)
+                .cloned()
+                .unwrap_or_default();
 
-                arg_names.push(arg_name.clone());
+            arg_names.push(arg_name.clone());
 
-                // Generate ToolInfo arg
-                if is_optional {
-                    arg_infos.push(quote! {
-                        .arg_optional(#arg_name_str, #python_type, #doc)
-                    });
-                } else {
-                    arg_infos.push(quote! {
-                        .arg_required(#arg_name_str, #python_type, #doc)
-                    });
-                }
+            // Generate ToolInfo arg
+            if is_optional {
+                arg_infos.push(quote! {
+                    .arg_optional(#arg_name_str, #python_type, #doc)
+                });
+            } else {
+                arg_infos.push(quote! {
+                    .arg_required(#arg_name_str, #python_type, #doc)
+                });
+            }
 
-                // Generate argument conversion
-                let idx = i;
-                if is_optional {
-                    arg_conversions.push(quote! {
-                        let #arg_name: #ty = match args.get(#idx) {
-                            Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
-                                .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
-                            None => None,
-                        };
-                    });
-                } else {
-                    arg_conversions.push(quote! {
-                        let #arg_name: #ty = match args.get(#idx) {
-                            Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
-                                .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
-                            None => return Err(littrs::ToolCallError::missing_argument(#arg_name_str)),
-                        };
-                    });
-                }
+            // Generate argument conversion
+            let idx = i;
+            if is_optional {
+                arg_conversions.push(quote! {
+                    let #arg_name: #ty = match args.get(#idx) {
+                        Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
+                            .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
+                        None => None,
+                    };
+                });
+            } else {
+                arg_conversions.push(quote! {
+                    let #arg_name: #ty = match args.get(#idx) {
+                        Some(v) => <#ty as littrs::FromPyValue>::from_py_value(v)
+                            .map_err(|e| littrs::ToolCallError::type_error(#arg_name_str, e))?,
+                        None => return Err(littrs::ToolCallError::missing_argument(#arg_name_str)),
+                    };
+                });
             }
         }
     }

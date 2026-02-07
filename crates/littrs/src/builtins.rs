@@ -62,7 +62,7 @@ fn builtin_len(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "sized".to_string(),
                 got: arg.type_name().to_string(),
-            })
+            });
         }
     };
     Ok(PyValue::Int(len as i64))
@@ -83,15 +83,21 @@ fn builtin_int(args: Vec<PyValue>) -> Result<PyValue> {
     let val = match arg {
         PyValue::Int(i) => *i,
         PyValue::Float(f) => *f as i64,
-        PyValue::Bool(b) => if *b { 1 } else { 0 },
-        PyValue::Str(s) => s.parse().map_err(|_| {
-            Error::Runtime(format!("invalid literal for int(): '{}'", s))
-        })?,
+        PyValue::Bool(b) => {
+            if *b {
+                1
+            } else {
+                0
+            }
+        }
+        PyValue::Str(s) => s
+            .parse()
+            .map_err(|_| Error::Runtime(format!("invalid literal for int(): '{}'", s)))?,
         _ => {
             return Err(Error::Type {
                 expected: "number or string".to_string(),
                 got: arg.type_name().to_string(),
-            })
+            });
         }
     };
     Ok(PyValue::Int(val))
@@ -99,21 +105,29 @@ fn builtin_int(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_float(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 1 {
-        return Err(Error::Runtime("float() takes exactly 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "float() takes exactly 1 argument".to_string(),
+        ));
     }
     let arg = &args[0];
     let val = match arg {
         PyValue::Float(f) => *f,
         PyValue::Int(i) => *i as f64,
-        PyValue::Bool(b) => if *b { 1.0 } else { 0.0 },
-        PyValue::Str(s) => s.parse().map_err(|_| {
-            Error::Runtime(format!("invalid literal for float(): '{}'", s))
-        })?,
+        PyValue::Bool(b) => {
+            if *b {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        PyValue::Str(s) => s
+            .parse()
+            .map_err(|_| Error::Runtime(format!("invalid literal for float(): '{}'", s)))?,
         _ => {
             return Err(Error::Type {
                 expected: "number or string".to_string(),
                 got: arg.type_name().to_string(),
-            })
+            });
         }
     };
     Ok(PyValue::Float(val))
@@ -121,7 +135,9 @@ fn builtin_float(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_bool(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 1 {
-        return Err(Error::Runtime("bool() takes exactly 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "bool() takes exactly 1 argument".to_string(),
+        ));
     }
     Ok(PyValue::Bool(args[0].is_truthy()))
 }
@@ -131,7 +147,9 @@ fn builtin_list(args: Vec<PyValue>) -> Result<PyValue> {
         return Ok(PyValue::List(vec![]));
     }
     if args.len() != 1 {
-        return Err(Error::Runtime("list() takes at most 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "list() takes at most 1 argument".to_string(),
+        ));
     }
     let arg = &args[0];
     let items = match arg {
@@ -141,7 +159,7 @@ fn builtin_list(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: arg.type_name().to_string(),
-            })
+            });
         }
     };
     Ok(PyValue::List(items))
@@ -149,10 +167,14 @@ fn builtin_list(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_range(args: Vec<PyValue>) -> Result<PyValue> {
     let (start, stop, step) = match args.len() {
-        1 => (0, args[0].as_int().ok_or_else(|| Error::Type {
-            expected: "int".to_string(),
-            got: args[0].type_name().to_string(),
-        })?, 1),
+        1 => (
+            0,
+            args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })?,
+            1,
+        ),
         2 => (
             args[0].as_int().ok_or_else(|| Error::Type {
                 expected: "int".to_string(),
@@ -223,39 +245,45 @@ fn builtin_abs(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_min(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
-        return Err(Error::Runtime("min() requires at least 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "min() requires at least 1 argument".to_string(),
+        ));
     }
 
-    if args.len() == 1 {
-        if let PyValue::List(items) = &args[0] {
-            if items.is_empty() {
-                return Err(Error::Runtime("min() arg is an empty sequence".to_string()));
-            }
-            return find_min(items);
+    if args.len() == 1
+        && let PyValue::List(items) = &args[0]
+    {
+        if items.is_empty() {
+            return Err(Error::Runtime("min() arg is an empty sequence".to_string()));
         }
+        return find_min(items);
     }
     find_min(&args)
 }
 
 fn builtin_max(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
-        return Err(Error::Runtime("max() requires at least 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "max() requires at least 1 argument".to_string(),
+        ));
     }
 
-    if args.len() == 1 {
-        if let PyValue::List(items) = &args[0] {
-            if items.is_empty() {
-                return Err(Error::Runtime("max() arg is an empty sequence".to_string()));
-            }
-            return find_max(items);
+    if args.len() == 1
+        && let PyValue::List(items) = &args[0]
+    {
+        if items.is_empty() {
+            return Err(Error::Runtime("max() arg is an empty sequence".to_string()));
         }
+        return find_max(items);
     }
     find_max(&args)
 }
 
 fn builtin_sum(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
-        return Err(Error::Runtime("sum() requires at least 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "sum() requires at least 1 argument".to_string(),
+        ));
     }
     let items = match &args[0] {
         PyValue::List(items) => items,
@@ -263,7 +291,7 @@ fn builtin_sum(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -291,7 +319,7 @@ fn builtin_sum(args: Vec<PyValue>) -> Result<PyValue> {
                 return Err(Error::Type {
                     expected: "number".to_string(),
                     got: item.type_name().to_string(),
-                })
+                });
             }
         }
     }
@@ -325,7 +353,9 @@ fn find_max(items: &[PyValue]) -> Result<PyValue> {
 
 fn builtin_enumerate(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() || args.len() > 2 {
-        return Err(Error::Runtime("enumerate() takes 1 or 2 arguments".to_string()));
+        return Err(Error::Runtime(
+            "enumerate() takes 1 or 2 arguments".to_string(),
+        ));
     }
 
     let items = match &args[0] {
@@ -335,7 +365,7 @@ fn builtin_enumerate(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -381,9 +411,7 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
 
     // Zip them together
     let result: Vec<PyValue> = (0..min_len)
-        .map(|i| {
-            PyValue::List(lists.iter().map(|l| l[i].clone()).collect())
-        })
+        .map(|i| PyValue::List(lists.iter().map(|l| l[i].clone()).collect()))
         .collect();
 
     Ok(PyValue::List(result))
@@ -391,7 +419,9 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 1 {
-        return Err(Error::Runtime("sorted() takes exactly 1 argument (reverse not yet supported)".to_string()));
+        return Err(Error::Runtime(
+            "sorted() takes exactly 1 argument (reverse not yet supported)".to_string(),
+        ));
     }
 
     let mut items = match &args[0] {
@@ -401,7 +431,7 @@ fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -409,7 +439,9 @@ fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
     items.sort_by(|a, b| {
         match (a, b) {
             (PyValue::Int(x), PyValue::Int(y)) => x.cmp(y),
-            (PyValue::Float(x), PyValue::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
+            (PyValue::Float(x), PyValue::Float(y)) => {
+                x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+            }
             (PyValue::Str(x), PyValue::Str(y)) => x.cmp(y),
             _ => std::cmp::Ordering::Equal, // Can't compare, keep order
         }
@@ -420,17 +452,23 @@ fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_reversed(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 1 {
-        return Err(Error::Runtime("reversed() takes exactly 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "reversed() takes exactly 1 argument".to_string(),
+        ));
     }
 
     let items = match &args[0] {
         PyValue::List(items) => items.iter().rev().cloned().collect(),
-        PyValue::Str(s) => s.chars().rev().map(|c| PyValue::Str(c.to_string())).collect(),
+        PyValue::Str(s) => s
+            .chars()
+            .rev()
+            .map(|c| PyValue::Str(c.to_string()))
+            .collect(),
         _ => {
             return Err(Error::Type {
                 expected: "sequence".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -448,7 +486,7 @@ fn builtin_any(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -466,7 +504,7 @@ fn builtin_all(args: Vec<PyValue>) -> Result<PyValue> {
             return Err(Error::Type {
                 expected: "iterable".to_string(),
                 got: args[0].type_name().to_string(),
-            })
+            });
         }
     };
 
@@ -475,7 +513,9 @@ fn builtin_all(args: Vec<PyValue>) -> Result<PyValue> {
 
 fn builtin_isinstance(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 2 {
-        return Err(Error::Runtime("isinstance() takes exactly 2 arguments".to_string()));
+        return Err(Error::Runtime(
+            "isinstance() takes exactly 2 arguments".to_string(),
+        ));
     }
 
     let type_name = args[1].as_str().ok_or_else(|| Error::Type {
@@ -483,23 +523,25 @@ fn builtin_isinstance(args: Vec<PyValue>) -> Result<PyValue> {
         got: args[1].type_name().to_string(),
     })?;
 
-    let result = match (type_name, &args[0]) {
-        ("str", PyValue::Str(_)) => true,
-        ("int", PyValue::Int(_)) => true,
-        ("float", PyValue::Float(_) | PyValue::Int(_)) => true,
-        ("bool", PyValue::Bool(_)) => true,
-        ("list", PyValue::List(_)) => true,
-        ("dict", PyValue::Dict(_)) => true,
-        ("None" | "NoneType", PyValue::None) => true,
-        _ => false,
-    };
+    let result = matches!(
+        (type_name, &args[0]),
+        ("str", PyValue::Str(_))
+            | ("int", PyValue::Int(_))
+            | ("float", PyValue::Float(_) | PyValue::Int(_))
+            | ("bool", PyValue::Bool(_))
+            | ("list", PyValue::List(_))
+            | ("dict", PyValue::Dict(_))
+            | ("None" | "NoneType", PyValue::None)
+    );
 
     Ok(PyValue::Bool(result))
 }
 
 fn builtin_type(args: Vec<PyValue>) -> Result<PyValue> {
     if args.len() != 1 {
-        return Err(Error::Runtime("type() takes exactly 1 argument".to_string()));
+        return Err(Error::Runtime(
+            "type() takes exactly 1 argument".to_string(),
+        ));
     }
 
     Ok(PyValue::Str(args[0].type_name().to_string()))

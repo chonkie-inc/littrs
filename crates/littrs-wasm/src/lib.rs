@@ -33,9 +33,9 @@ struct ToolCallResponse {
 
 // Thread-local storage for the sandbox and result buffer
 thread_local! {
-    static SANDBOX: RefCell<Option<Sandbox>> = RefCell::new(None);
-    static RESULT_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-    static REGISTERED_TOOLS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static SANDBOX: RefCell<Option<Sandbox>> = const { RefCell::new(None) };
+    static RESULT_BUFFER: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
+    static REGISTERED_TOOLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 // Import host function for tool calls
@@ -45,6 +45,7 @@ unsafe extern "C" {
     /// - request_len: length of request
     /// - response_ptr: pointer to write response
     /// - response_capacity: capacity of response buffer
+    ///
     /// Returns: length of response written, or negative on error
     safe fn host_call_tool(
         request_ptr: *const u8,
@@ -65,6 +66,7 @@ pub extern "C" fn alloc(size: usize) -> *mut u8 {
 
 /// Deallocate memory.
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn dealloc(ptr: *mut u8, size: usize) {
     unsafe {
         let _ = Vec::from_raw_parts(ptr, 0, size);
@@ -83,6 +85,7 @@ pub extern "C" fn init() {
 /// - name_ptr: pointer to tool name string
 /// - name_len: length of tool name
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn register_tool(name_ptr: *const u8, name_len: usize) {
     let name = unsafe {
         let slice = std::slice::from_raw_parts(name_ptr, name_len);
@@ -136,6 +139,7 @@ fn call_host_tool(name: &str, args: &[PyValue]) -> PyValue {
 /// - value_ptr: pointer to JSON-encoded value
 /// - value_len: length of value
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn set_variable(
     name_ptr: *const u8,
     name_len: usize,
@@ -147,10 +151,7 @@ pub extern "C" fn set_variable(
         String::from_utf8_lossy(slice).into_owned()
     };
 
-    let value_json = unsafe {
-        let slice = std::slice::from_raw_parts(value_ptr, value_len);
-        slice
-    };
+    let value_json = unsafe { std::slice::from_raw_parts(value_ptr, value_len) };
 
     let value: PyValue = serde_json::from_slice(value_json).unwrap_or(PyValue::None);
 
@@ -164,8 +165,10 @@ pub extern "C" fn set_variable(
 /// Execute Python code.
 /// - code_ptr: pointer to code string
 /// - code_len: length of code string
+///
 /// Returns: pointer to result JSON (use get_result_len for length)
 #[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn execute(code_ptr: *const u8, code_len: usize) -> *const u8 {
     let code = unsafe {
         let slice = std::slice::from_raw_parts(code_ptr, code_len);

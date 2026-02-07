@@ -451,8 +451,7 @@ mod tests {
         let none: Option<String> = Option::from_py_value(&PyValue::None).unwrap();
         assert_eq!(none, None);
 
-        let some: Option<String> =
-            Option::from_py_value(&PyValue::Str("hello".into())).unwrap();
+        let some: Option<String> = Option::from_py_value(&PyValue::Str("hello".into())).unwrap();
         assert_eq!(some, Some("hello".to_string()));
 
         // Type error propagates
@@ -462,11 +461,7 @@ mod tests {
 
     #[test]
     fn test_vec_from_py_value() {
-        let list = PyValue::List(vec![
-            PyValue::Int(1),
-            PyValue::Int(2),
-            PyValue::Int(3),
-        ]);
+        let list = PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)]);
         let vec: Vec<i64> = Vec::from_py_value(&list).unwrap();
         assert_eq!(vec, vec![1, 2, 3]);
 

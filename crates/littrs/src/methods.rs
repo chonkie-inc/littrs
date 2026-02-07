@@ -51,7 +51,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "join" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("join() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "join() takes exactly 1 argument".to_string(),
+                ));
             }
             let items = match &args[0] {
                 PyValue::List(items) => items,
@@ -59,7 +61,7 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
                     return Err(Error::Type {
                         expected: "list".to_string(),
                         got: args[0].type_name().to_string(),
-                    })
+                    });
                 }
             };
             let strings: Result<Vec<String>> = items
@@ -76,7 +78,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "replace" => {
             if args.len() != 2 {
-                return Err(Error::Runtime("replace() takes exactly 2 arguments".to_string()));
+                return Err(Error::Runtime(
+                    "replace() takes exactly 2 arguments".to_string(),
+                ));
             }
             let old = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),
@@ -90,7 +94,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "startswith" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("startswith() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "startswith() takes exactly 1 argument".to_string(),
+                ));
             }
             let prefix = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),
@@ -100,7 +106,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "endswith" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("endswith() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "endswith() takes exactly 1 argument".to_string(),
+                ));
             }
             let suffix = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),
@@ -110,7 +118,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "find" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("find() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "find() takes exactly 1 argument".to_string(),
+                ));
             }
             let needle = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),
@@ -120,7 +130,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "count" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("count() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "count() takes exactly 1 argument".to_string(),
+                ));
             }
             let needle = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),
@@ -132,19 +144,25 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
             if !args.is_empty() {
                 return Err(Error::Runtime("isdigit() takes no arguments".to_string()));
             }
-            Ok(PyValue::Bool(!s.is_empty() && s.chars().all(|c| c.is_ascii_digit())))
+            Ok(PyValue::Bool(
+                !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()),
+            ))
         }
         "isalpha" => {
             if !args.is_empty() {
                 return Err(Error::Runtime("isalpha() takes no arguments".to_string()));
             }
-            Ok(PyValue::Bool(!s.is_empty() && s.chars().all(|c| c.is_alphabetic())))
+            Ok(PyValue::Bool(
+                !s.is_empty() && s.chars().all(|c| c.is_alphabetic()),
+            ))
         }
         "isalnum" => {
             if !args.is_empty() {
                 return Err(Error::Runtime("isalnum() takes no arguments".to_string()));
             }
-            Ok(PyValue::Bool(!s.is_empty() && s.chars().all(|c| c.is_alphanumeric())))
+            Ok(PyValue::Bool(
+                !s.is_empty() && s.chars().all(|c| c.is_alphanumeric()),
+            ))
         }
         "title" => {
             if !args.is_empty() {
@@ -155,7 +173,10 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
                 .map(|word| {
                     let mut chars = word.chars();
                     match chars.next() {
-                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str().to_lowercase().as_str(),
+                        Some(c) => {
+                            c.to_uppercase().collect::<String>()
+                                + chars.as_str().to_lowercase().as_str()
+                        }
                         None => String::new(),
                     }
                 })
@@ -165,11 +186,15 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "capitalize" => {
             if !args.is_empty() {
-                return Err(Error::Runtime("capitalize() takes no arguments".to_string()));
+                return Err(Error::Runtime(
+                    "capitalize() takes no arguments".to_string(),
+                ));
             }
             let mut chars = s.chars();
             let result = match chars.next() {
-                Some(c) => c.to_uppercase().collect::<String>() + chars.as_str().to_lowercase().as_str(),
+                Some(c) => {
+                    c.to_uppercase().collect::<String>() + chars.as_str().to_lowercase().as_str()
+                }
                 None => String::new(),
             };
             Ok(PyValue::Str(result))
@@ -186,7 +211,9 @@ pub fn call_list_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> 
     match method {
         "index" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("index() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "index() takes exactly 1 argument".to_string(),
+                ));
             }
             for (i, item) in items.iter().enumerate() {
                 if item == &args[0] {
@@ -197,7 +224,9 @@ pub fn call_list_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> 
         }
         "count" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("count() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "count() takes exactly 1 argument".to_string(),
+                ));
             }
             let count = items.iter().filter(|&item| item == &args[0]).count();
             Ok(PyValue::Int(count as i64))
@@ -216,7 +245,11 @@ pub fn call_list_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> 
 }
 
 /// Call a method on a dict value (non-mutating).
-pub fn call_dict_method(pairs: &[(String, PyValue)], method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+pub fn call_dict_method(
+    pairs: &[(String, PyValue)],
+    method: &str,
+    args: Vec<PyValue>,
+) -> Result<PyValue> {
     match method {
         "get" => {
             if args.is_empty() || args.len() > 2 {
@@ -245,7 +278,9 @@ pub fn call_dict_method(pairs: &[(String, PyValue)], method: &str, args: Vec<PyV
             if !args.is_empty() {
                 return Err(Error::Runtime("values() takes no arguments".to_string()));
             }
-            Ok(PyValue::List(pairs.iter().map(|(_, v)| v.clone()).collect()))
+            Ok(PyValue::List(
+                pairs.iter().map(|(_, v)| v.clone()).collect(),
+            ))
         }
         "items" => {
             if !args.is_empty() {
@@ -277,14 +312,18 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
     match method {
         "append" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("append() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "append() takes exactly 1 argument".to_string(),
+                ));
             }
             items.push(args.into_iter().next().unwrap());
             Ok(PyValue::None)
         }
         "extend" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("extend() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "extend() takes exactly 1 argument".to_string(),
+                ));
             }
             match &args[0] {
                 PyValue::List(new_items) => {
@@ -294,7 +333,7 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
                     return Err(Error::Type {
                         expected: "list".to_string(),
                         got: args[0].type_name().to_string(),
-                    })
+                    });
                 }
             }
             Ok(PyValue::None)
@@ -332,7 +371,9 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
         }
         "insert" => {
             if args.len() != 2 {
-                return Err(Error::Runtime("insert() takes exactly 2 arguments".to_string()));
+                return Err(Error::Runtime(
+                    "insert() takes exactly 2 arguments".to_string(),
+                ));
             }
             let index = args[0].as_int().ok_or_else(|| Error::Type {
                 expected: "int".to_string(),
@@ -349,7 +390,9 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
         }
         "remove" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("remove() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "remove() takes exactly 1 argument".to_string(),
+                ));
             }
             let pos = items.iter().position(|x| x == &args[0]);
             match pos {
@@ -369,15 +412,17 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
         }
         "sort" => {
             if !args.is_empty() {
-                return Err(Error::Runtime("sort() takes no arguments (reverse/key not yet supported)".to_string()));
+                return Err(Error::Runtime(
+                    "sort() takes no arguments (reverse/key not yet supported)".to_string(),
+                ));
             }
-            items.sort_by(|a, b| {
-                match (a, b) {
-                    (PyValue::Int(x), PyValue::Int(y)) => x.cmp(y),
-                    (PyValue::Float(x), PyValue::Float(y)) => x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal),
-                    (PyValue::Str(x), PyValue::Str(y)) => x.cmp(y),
-                    _ => std::cmp::Ordering::Equal,
+            items.sort_by(|a, b| match (a, b) {
+                (PyValue::Int(x), PyValue::Int(y)) => x.cmp(y),
+                (PyValue::Float(x), PyValue::Float(y)) => {
+                    x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
                 }
+                (PyValue::Str(x), PyValue::Str(y)) => x.cmp(y),
+                _ => std::cmp::Ordering::Equal,
             });
             Ok(PyValue::None)
         }
@@ -390,11 +435,17 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
 
 /// Mutating dict methods (update, setdefault, pop, clear)
 #[allow(dead_code)]
-pub fn mutate_dict(pairs: &mut Vec<(String, PyValue)>, method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+pub fn mutate_dict(
+    pairs: &mut Vec<(String, PyValue)>,
+    method: &str,
+    args: Vec<PyValue>,
+) -> Result<PyValue> {
     match method {
         "update" => {
             if args.len() != 1 {
-                return Err(Error::Runtime("update() takes exactly 1 argument".to_string()));
+                return Err(Error::Runtime(
+                    "update() takes exactly 1 argument".to_string(),
+                ));
             }
             match &args[0] {
                 PyValue::Dict(new_pairs) => {
@@ -410,14 +461,16 @@ pub fn mutate_dict(pairs: &mut Vec<(String, PyValue)>, method: &str, args: Vec<P
                     return Err(Error::Type {
                         expected: "dict".to_string(),
                         got: args[0].type_name().to_string(),
-                    })
+                    });
                 }
             }
             Ok(PyValue::None)
         }
         "setdefault" => {
             if args.is_empty() || args.len() > 2 {
-                return Err(Error::Runtime("setdefault() takes 1 or 2 arguments".to_string()));
+                return Err(Error::Runtime(
+                    "setdefault() takes 1 or 2 arguments".to_string(),
+                ));
             }
             let key = args[0].as_str().ok_or_else(|| Error::Type {
                 expected: "str".to_string(),

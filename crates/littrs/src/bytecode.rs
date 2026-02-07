@@ -73,6 +73,7 @@ pub enum UnaryOp {
 /// All index arguments (`u32`) refer to entries in the corresponding pool of the
 /// [`CodeObject`] that contains this instruction (constants, names, or functions).
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum Op {
     // --- Stack manipulation ---
     /// Push `constants[i]` onto the stack.
@@ -132,6 +133,7 @@ pub enum Op {
     Jump(u32),
 
     /// Pop TOS. If truthy, jump to target.
+    #[allow(dead_code)]
     PopJumpIfTrue(u32),
 
     /// Pop TOS. If falsy, jump to target.

@@ -253,11 +253,10 @@ where
         (PyValue::Float(a), PyValue::Float(b)) => Ok(float_cmp(*a, *b)),
         (PyValue::Int(a), PyValue::Float(b)) => Ok(float_cmp(*a as f64, *b)),
         (PyValue::Float(a), PyValue::Int(b)) => Ok(float_cmp(*a, *b as f64)),
-        (PyValue::Str(a), PyValue::Str(b)) => {
-            Ok(a.cmp(b) == std::cmp::Ordering::Less && int_cmp(0, 1)
-                || a.cmp(b) == std::cmp::Ordering::Equal && int_cmp(0, 0)
-                || a.cmp(b) == std::cmp::Ordering::Greater && int_cmp(1, 0))
-        }
+        (PyValue::Str(a), PyValue::Str(b)) => Ok(a.cmp(b) == std::cmp::Ordering::Less
+            && int_cmp(0, 1)
+            || a.cmp(b) == std::cmp::Ordering::Equal && int_cmp(0, 0)
+            || a.cmp(b) == std::cmp::Ordering::Greater && int_cmp(1, 0)),
         _ => Err(Error::Type {
             expected: "comparable types".to_string(),
             got: format!("{} and {}", left.type_name(), right.type_name()),

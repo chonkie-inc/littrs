@@ -30,8 +30,8 @@ littrs-wasm = { version = "0.4.0", path = "crates/littrs-wasm" }
 # External dependencies
 rustpython-parser = "0.4"
 thiserror = "2"
-wasmtime = "29"
-wasmtime-wasi = "29"
+wasmtime = "37"
+wasmtime-wasi = "37"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

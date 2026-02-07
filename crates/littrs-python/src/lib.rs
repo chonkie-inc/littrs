@@ -7,6 +7,7 @@ use ::littrs::{
     PyValue, ResourceLimits, Sandbox as RustSandbox, WasmError, WasmSandbox as RustWasmSandbox,
     WasmSandboxConfig as RustWasmSandboxConfig,
 };
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
@@ -19,20 +20,20 @@ use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 fn pyvalue_to_py(py: Python<'_>, value: &PyValue) -> PyObject {
     match value {
         PyValue::None => py.None(),
-        PyValue::Bool(b) => b.into_py(py),
-        PyValue::Int(i) => i.into_py(py),
-        PyValue::Float(f) => f.into_py(py),
-        PyValue::Str(s) => s.into_py(py),
+        PyValue::Bool(b) => b.into_py_any(py).unwrap(),
+        PyValue::Int(i) => i.into_py_any(py).unwrap(),
+        PyValue::Float(f) => f.into_py_any(py).unwrap(),
+        PyValue::Str(s) => s.into_py_any(py).unwrap(),
         PyValue::List(items) => {
             let list: Vec<PyObject> = items.iter().map(|v| pyvalue_to_py(py, v)).collect();
-            list.into_py(py)
+            list.into_py_any(py).unwrap()
         }
         PyValue::Dict(pairs) => {
             let dict = PyDict::new(py);
             for (k, v) in pairs {
                 dict.set_item(k, pyvalue_to_py(py, v)).unwrap();
             }
-            dict.into_py(py)
+            dict.into_any().unbind()
         }
     }
 }
@@ -184,10 +185,7 @@ impl Sandbox {
                     }
                     Err(e) => {
                         // Return error as a dict
-                        PyValue::Dict(vec![(
-                            "error".to_string(),
-                            PyValue::Str(format!("{}", e)),
-                        )])
+                        PyValue::Dict(vec![("error".to_string(), PyValue::Str(format!("{}", e)))])
                     }
                 }
             })
@@ -212,11 +210,7 @@ impl Sandbox {
     ///     >>> sandbox.set_limits(max_instructions=1000)
     ///     >>> sandbox.execute("while True: pass")  # raises RuntimeError
     #[pyo3(signature = (max_instructions=None, max_recursion_depth=None))]
-    fn set_limits(
-        &mut self,
-        max_instructions: Option<u64>,
-        max_recursion_depth: Option<usize>,
-    ) {
+    fn set_limits(&mut self, max_instructions: Option<u64>, max_recursion_depth: Option<usize>) {
         self.inner.set_limits(ResourceLimits {
             max_instructions,
             max_recursion_depth,
@@ -349,7 +343,8 @@ impl WasmSandbox {
         self.inner
             .register_fn(name, move |args: Vec<PyValue>| {
                 Python::with_gil(|py| {
-                    let py_args: Vec<PyObject> = args.iter().map(|v| pyvalue_to_py(py, v)).collect();
+                    let py_args: Vec<PyObject> =
+                        args.iter().map(|v| pyvalue_to_py(py, v)).collect();
                     match func.call1(py, (py_args,)) {
                         Ok(result) => py_to_pyvalue(result.bind(py)).unwrap_or(PyValue::None),
                         Err(e) => PyValue::Dict(vec![(

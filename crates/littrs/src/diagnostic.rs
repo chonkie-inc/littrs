@@ -246,7 +246,12 @@ impl FunctionCallDiagnostic {
         self
     }
 
-    pub fn with_arg(mut self, span: Span, name: impl Into<String>, expected_type: impl Into<String>) -> Self {
+    pub fn with_arg(
+        mut self,
+        span: Span,
+        name: impl Into<String>,
+        expected_type: impl Into<String>,
+    ) -> Self {
         self.arg_spans.push(span);
         self.arg_names.push(name.into());
         self.expected_types.push(expected_type.into());
@@ -261,12 +266,19 @@ impl FunctionCallDiagnostic {
         got: &str,
         actual_value: &str,
     ) -> Diagnostic {
-        let arg_name = self.arg_names.get(arg_index).map(|s| s.as_str()).unwrap_or("?");
+        let arg_name = self
+            .arg_names
+            .get(arg_index)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
         let arg_span = self.arg_spans.get(arg_index).copied().unwrap_or_default();
 
         Diagnostic::new(format!("type mismatch in call to `{}`", self.func_name))
             .with_source(self.source)
-            .with_label(arg_span, format!("expected `{}`, found `{}`", expected, got))
+            .with_label(
+                arg_span,
+                format!("expected `{}`, found `{}`", expected, got),
+            )
             .with_note(format!(
                 "parameter `{}` of `{}()` expects type `{}`",
                 arg_name, self.func_name, expected
@@ -279,23 +291,26 @@ impl FunctionCallDiagnostic {
 
     /// Build a missing argument diagnostic.
     pub fn missing_argument(self, arg_name: &str, expected_type: &str) -> Diagnostic {
-        Diagnostic::new(format!("missing required argument in call to `{}`", self.func_name))
-            .with_source(self.source.clone())
-            .with_label(self.call_span, format!("missing `{}`", arg_name))
-            .with_note(format!(
-                "function signature: {}({})",
-                self.func_name,
-                self.arg_names
-                    .iter()
-                    .zip(self.expected_types.iter())
-                    .map(|(n, t)| format!("{}: {}", n, t))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-            .with_help(format!(
-                "add the missing argument `{}` of type `{}`",
-                arg_name, expected_type
-            ))
+        Diagnostic::new(format!(
+            "missing required argument in call to `{}`",
+            self.func_name
+        ))
+        .with_source(self.source.clone())
+        .with_label(self.call_span, format!("missing `{}`", arg_name))
+        .with_note(format!(
+            "function signature: {}({})",
+            self.func_name,
+            self.arg_names
+                .iter()
+                .zip(self.expected_types.iter())
+                .map(|(n, t)| format!("{}: {}", n, t))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+        .with_help(format!(
+            "add the missing argument `{}` of type `{}`",
+            arg_name, expected_type
+        ))
     }
 
     /// Build an unexpected argument diagnostic.
@@ -304,22 +319,22 @@ impl FunctionCallDiagnostic {
             "`{}()` got an unexpected keyword argument `{}`",
             self.func_name, arg_name
         ))
-            .with_source(self.source.clone())
-            .with_label(arg_span, "unexpected argument")
-            .with_note(format!(
-                "function signature: {}({})",
-                self.func_name,
-                self.arg_names
-                    .iter()
-                    .zip(self.expected_types.iter())
-                    .map(|(n, t)| format!("{}: {}", n, t))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))
-            .with_help(format!(
-                "valid arguments are: {}",
-                self.arg_names.join(", ")
-            ))
+        .with_source(self.source.clone())
+        .with_label(arg_span, "unexpected argument")
+        .with_note(format!(
+            "function signature: {}({})",
+            self.func_name,
+            self.arg_names
+                .iter()
+                .zip(self.expected_types.iter())
+                .map(|(n, t)| format!("{}: {}", n, t))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ))
+        .with_help(format!(
+            "valid arguments are: {}",
+            self.arg_names.join(", ")
+        ))
     }
 }
 
