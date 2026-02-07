@@ -4,7 +4,7 @@
 //! secure execution of untrusted Python code with tool registration.
 
 use ::littrs::{
-    PyValue, Sandbox as RustSandbox, WasmError, WasmSandbox as RustWasmSandbox,
+    PyValue, ResourceLimits, Sandbox as RustSandbox, WasmError, WasmSandbox as RustWasmSandbox,
     WasmSandboxConfig as RustWasmSandboxConfig,
 };
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
@@ -194,6 +194,33 @@ impl Sandbox {
         });
 
         Ok(())
+    }
+
+    /// Set resource limits for sandbox execution.
+    ///
+    /// Limits are enforced per execute() call. The instruction counter
+    /// resets at the start of each execution.
+    ///
+    /// Args:
+    ///     max_instructions: Maximum bytecode instructions per execute() call.
+    ///         None means unlimited.
+    ///     max_recursion_depth: Maximum call-stack depth for user-defined functions.
+    ///         None means unlimited.
+    ///
+    /// Example:
+    ///     >>> sandbox = Sandbox()
+    ///     >>> sandbox.set_limits(max_instructions=1000)
+    ///     >>> sandbox.execute("while True: pass")  # raises RuntimeError
+    #[pyo3(signature = (max_instructions=None, max_recursion_depth=None))]
+    fn set_limits(
+        &mut self,
+        max_instructions: Option<u64>,
+        max_recursion_depth: Option<usize>,
+    ) {
+        self.inner.set_limits(ResourceLimits {
+            max_instructions,
+            max_recursion_depth,
+        });
     }
 
     /// Get tool documentation for all registered tools.

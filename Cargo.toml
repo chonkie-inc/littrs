@@ -16,16 +16,16 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/chonkie-inc/littrs"
 
 [workspace.dependencies]
 # Internal crates
-littrs = { version = "0.3.1", path = "crates/littrs" }
-littrs-macros = { version = "0.3.1", path = "crates/littrs-macros" }
-littrs-wasm = { version = "0.3.1", path = "crates/littrs-wasm" }
+littrs = { version = "0.4.0", path = "crates/littrs" }
+littrs-macros = { version = "0.4.0", path = "crates/littrs-macros" }
+littrs-wasm = { version = "0.4.0", path = "crates/littrs-wasm" }
 
 # External dependencies
 rustpython-parser = "0.4"
