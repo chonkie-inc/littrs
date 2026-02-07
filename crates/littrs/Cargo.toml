@@ -10,7 +10,9 @@ keywords = ["sandbox", "python", "interpreter", "ai", "agents"]
 categories = ["development-tools"]
 
 [dependencies]
-rustpython-parser.workspace = true
+ruff_python_parser.workspace = true
+ruff_python_ast.workspace = true
+ruff_text_size.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }

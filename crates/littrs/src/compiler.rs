@@ -1,12 +1,13 @@
 //! Bytecode compiler: translates Python AST to bytecode instructions.
 //!
-//! This is the **only** module that imports `rustpython_parser`. It walks the
+//! This is the **only** module that imports `ruff_python_parser`. It walks the
 //! AST once and produces a [`CodeObject`] that the VM can execute. All source
 //! span information is captured during compilation so the VM can produce error
 //! messages with accurate locations without ever touching the AST.
 
-use rustpython_parser::ast::{self, BoolOp, Constant, Expr, Ranged, Stmt, UnaryOp};
-use rustpython_parser::{Mode, parse};
+use ruff_python_ast::{self as ast, BoolOp, Expr, Stmt, UnaryOp};
+use ruff_python_parser::parse_module;
+use ruff_text_size::Ranged;
 
 use crate::bytecode::{self, BinOp, CodeObject, FunctionDef, Op};
 use crate::diagnostic::Span;
@@ -52,12 +53,8 @@ impl Compiler {
     /// This is the main entry point. It parses the source, walks the AST,
     /// and produces a flat bytecode representation ready for the VM.
     pub fn compile(source: &str) -> Result<CodeObject> {
-        let ast =
-            parse(source, Mode::Module, "<sandbox>").map_err(|e| Error::Parse(e.to_string()))?;
-
-        let module = ast
-            .as_module()
-            .ok_or_else(|| Error::Parse("Expected module".to_string()))?;
+        let parsed = parse_module(source).map_err(|e| Error::Parse(e.to_string()))?;
+        let module = parsed.into_syntax();
 
         let mut compiler = Compiler {
             code: CodeObject::new(source.to_string()),
@@ -138,13 +135,19 @@ impl Compiler {
     /// Get the source span of an AST expression.
     fn expr_span(&self, expr: &Expr) -> Span {
         let range = expr.range();
-        Span::new(range.start().to_usize(), range.end().to_usize())
+        Span::new(
+            range.start().to_u32() as usize,
+            range.end().to_u32() as usize,
+        )
     }
 
     /// Get the source span of an AST statement.
     fn stmt_span(&self, stmt: &Stmt) -> Span {
         let range = stmt.range();
-        Span::new(range.start().to_usize(), range.end().to_usize())
+        Span::new(
+            range.start().to_u32() as usize,
+            range.end().to_u32() as usize,
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -200,25 +203,7 @@ impl Compiler {
 
             Stmt::If(if_stmt) => {
                 let span = self.stmt_span(stmt);
-                self.compile_expr(&if_stmt.test)?;
-                let else_jump = self.emit_jump(Op::PopJumpIfFalse, span);
-
-                self.compile_body(&if_stmt.body, is_last)?;
-
-                if !if_stmt.orelse.is_empty() {
-                    let end_jump = self.emit_jump(Op::Jump, span);
-                    self.patch_jump(else_jump, self.current_offset());
-                    self.compile_body(&if_stmt.orelse, is_last)?;
-                    self.patch_jump(end_jump, self.current_offset());
-                } else if is_last {
-                    let end_jump = self.emit_jump(Op::Jump, span);
-                    self.patch_jump(else_jump, self.current_offset());
-                    let none_idx = self.add_const(PyValue::None);
-                    self.emit(Op::LoadConst(none_idx), span);
-                    self.patch_jump(end_jump, self.current_offset());
-                } else {
-                    self.patch_jump(else_jump, self.current_offset());
-                }
+                self.compile_if(if_stmt, span, is_last)?;
             }
 
             Stmt::While(while_stmt) => {
@@ -439,32 +424,49 @@ impl Compiler {
         let span = self.expr_span(expr);
 
         match expr {
-            Expr::Constant(constant) => {
-                let value = eval_constant(&constant.value)?;
+            Expr::NoneLiteral(_) => {
+                let idx = self.add_const(PyValue::None);
+                self.emit(Op::LoadConst(idx), span);
+            }
+
+            Expr::BooleanLiteral(b) => {
+                let idx = self.add_const(PyValue::Bool(b.value));
+                self.emit(Op::LoadConst(idx), span);
+            }
+
+            Expr::NumberLiteral(n) => {
+                let value = match &n.value {
+                    ast::Number::Int(i) => {
+                        let val: i64 = i
+                            .as_i64()
+                            .ok_or_else(|| Error::Runtime("Integer too large".to_string()))?;
+                        PyValue::Int(val)
+                    }
+                    ast::Number::Float(f) => PyValue::Float(*f),
+                    ast::Number::Complex { .. } => {
+                        return Err(Error::Unsupported("Complex numbers".to_string()));
+                    }
+                };
                 let idx = self.add_const(value);
                 self.emit(Op::LoadConst(idx), span);
             }
 
+            Expr::StringLiteral(s) => {
+                let idx = self.add_const(PyValue::Str(s.value.to_string()));
+                self.emit(Op::LoadConst(idx), span);
+            }
+
+            Expr::BytesLiteral(_) => {
+                return Err(Error::Unsupported("Bytes literals".to_string()));
+            }
+
+            Expr::EllipsisLiteral(_) => {
+                return Err(Error::Unsupported("Ellipsis".to_string()));
+            }
+
             Expr::Name(name) => {
-                // Handle builtin constant names
-                match name.id.as_str() {
-                    "True" => {
-                        let idx = self.add_const(PyValue::Bool(true));
-                        self.emit(Op::LoadConst(idx), span);
-                    }
-                    "False" => {
-                        let idx = self.add_const(PyValue::Bool(false));
-                        self.emit(Op::LoadConst(idx), span);
-                    }
-                    "None" => {
-                        let idx = self.add_const(PyValue::None);
-                        self.emit(Op::LoadConst(idx), span);
-                    }
-                    _ => {
-                        let idx = self.add_name(name.id.as_str());
-                        self.emit(Op::LoadName(idx), span);
-                    }
-                }
+                let idx = self.add_name(name.id.as_str());
+                self.emit(Op::LoadName(idx), span);
             }
 
             Expr::List(list) => {
@@ -483,16 +485,16 @@ impl Compiler {
             }
 
             Expr::Dict(dict) => {
-                for (key, value) in dict.keys.iter().zip(dict.values.iter()) {
-                    match key {
+                for item in &dict.items {
+                    match &item.key {
                         Some(k) => self.compile_expr(k)?,
                         None => {
                             return Err(Error::Unsupported("Dict unpacking".to_string()));
                         }
                     }
-                    self.compile_expr(value)?;
+                    self.compile_expr(&item.value)?;
                 }
-                self.emit(Op::BuildDict(dict.keys.len() as u32), span);
+                self.emit(Op::BuildDict(dict.items.len() as u32), span);
             }
 
             Expr::BinOp(binop) => {
@@ -520,7 +522,7 @@ impl Compiler {
                 self.compile_compare(cmp, span)?;
             }
 
-            Expr::IfExp(ifexp) => {
+            Expr::If(ifexp) => {
                 self.compile_expr(&ifexp.test)?;
                 let else_jump = self.emit_jump(Op::PopJumpIfFalse, span);
                 self.compile_expr(&ifexp.body)?;
@@ -562,37 +564,41 @@ impl Compiler {
                 self.compile_list_comprehension(&listcomp.elt, &listcomp.generators, span)?;
             }
 
-            Expr::GeneratorExp(genexp) => {
+            Expr::Generator(genexp) => {
                 // Treat generator expressions as eager list comprehensions
                 self.compile_list_comprehension(&genexp.elt, &genexp.generators, span)?;
             }
 
-            Expr::JoinedStr(joined) => {
-                let n_parts = joined.values.len();
-                for part in &joined.values {
+            Expr::FString(fstring) => {
+                let mut n_parts = 0u32;
+                for part in fstring.value.iter() {
                     match part {
-                        Expr::Constant(c) => {
-                            // Literal string parts of the f-string
-                            let val = eval_constant(&c.value)?;
-                            let idx = self.add_const(val);
-                            self.emit(Op::LoadConst(idx), self.expr_span(part));
-                            self.emit(Op::FormatValue, self.expr_span(part));
+                        ast::FStringPart::Literal(s) => {
+                            let idx = self.add_const(PyValue::Str(s.value.to_string()));
+                            self.emit(Op::LoadConst(idx), span);
+                            self.emit(Op::FormatValue, span);
+                            n_parts += 1;
                         }
-                        Expr::FormattedValue(fv) => {
-                            self.compile_expr(&fv.value)?;
-                            self.emit(Op::FormatValue, self.expr_span(part));
-                        }
-                        _ => {
-                            self.compile_expr(part)?;
-                            self.emit(Op::FormatValue, self.expr_span(part));
+                        ast::FStringPart::FString(fs) => {
+                            for element in &fs.elements {
+                                match element {
+                                    ast::InterpolatedStringElement::Literal(lit) => {
+                                        let idx =
+                                            self.add_const(PyValue::Str(lit.value.to_string()));
+                                        self.emit(Op::LoadConst(idx), span);
+                                        self.emit(Op::FormatValue, span);
+                                    }
+                                    ast::InterpolatedStringElement::Interpolation(interp) => {
+                                        self.compile_expr(&interp.expression)?;
+                                        self.emit(Op::FormatValue, span);
+                                    }
+                                }
+                                n_parts += 1;
+                            }
                         }
                     }
                 }
-                self.emit(Op::BuildString(n_parts as u32), span);
-            }
-
-            Expr::FormattedValue(fv) => {
-                self.compile_expr(&fv.value)?;
+                self.emit(Op::BuildString(n_parts), span);
             }
 
             _ => {
@@ -602,6 +608,76 @@ impl Compiler {
                 )));
             }
         }
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Specialized statement compilers
+    // -----------------------------------------------------------------------
+
+    /// Compile an if/elif/else statement.
+    ///
+    /// Ruff represents `if/elif/else` with `elif_else_clauses` rather than
+    /// a nested `orelse` list. Each clause has an optional `test` (None = else).
+    fn compile_if(&mut self, if_stmt: &ast::StmtIf, span: Span, is_last: bool) -> Result<()> {
+        self.compile_expr(&if_stmt.test)?;
+        let else_jump = self.emit_jump(Op::PopJumpIfFalse, span);
+
+        self.compile_body(&if_stmt.body, is_last)?;
+
+        let has_else = !if_stmt.elif_else_clauses.is_empty();
+        if has_else {
+            let end_jump = self.emit_jump(Op::Jump, span);
+            self.patch_jump(else_jump, self.current_offset());
+
+            // Compile elif/else clauses
+            let mut clause_end_jumps = vec![end_jump];
+            let n_clauses = if_stmt.elif_else_clauses.len();
+            for (i, clause) in if_stmt.elif_else_clauses.iter().enumerate() {
+                let is_last_clause = i == n_clauses - 1;
+                if let Some(ref test) = clause.test {
+                    // elif
+                    self.compile_expr(test)?;
+                    let next_jump = self.emit_jump(Op::PopJumpIfFalse, span);
+                    self.compile_body(&clause.body, is_last)?;
+                    if !is_last_clause {
+                        let ej = self.emit_jump(Op::Jump, span);
+                        clause_end_jumps.push(ej);
+                    } else if is_last {
+                        // Last elif with no else — need to push None for the
+                        // false branch, same as an if without else
+                        let ej = self.emit_jump(Op::Jump, span);
+                        clause_end_jumps.push(ej);
+                        self.patch_jump(next_jump, self.current_offset());
+                        let none_idx = self.add_const(PyValue::None);
+                        self.emit(Op::LoadConst(none_idx), span);
+                        // Don't patch next_jump again below
+                        for j in clause_end_jumps {
+                            self.patch_jump(j, self.current_offset());
+                        }
+                        return Ok(());
+                    }
+                    self.patch_jump(next_jump, self.current_offset());
+                } else {
+                    // else
+                    self.compile_body(&clause.body, is_last)?;
+                }
+            }
+
+            let end = self.current_offset();
+            for j in clause_end_jumps {
+                self.patch_jump(j, end);
+            }
+        } else if is_last {
+            let end_jump = self.emit_jump(Op::Jump, span);
+            self.patch_jump(else_jump, self.current_offset());
+            let none_idx = self.add_const(PyValue::None);
+            self.emit(Op::LoadConst(none_idx), span);
+            self.patch_jump(end_jump, self.current_offset());
+        } else {
+            self.patch_jump(else_jump, self.current_offset());
+        }
+
         Ok(())
     }
 
@@ -711,23 +787,30 @@ impl Compiler {
         let name_idx = self.add_name(&func_name);
 
         // Compile positional arguments
-        for arg in &call.args {
+        for arg in &call.arguments.args {
             self.compile_expr(arg)?;
         }
 
-        if call.keywords.is_empty() {
-            self.emit(Op::CallFunction(name_idx, call.args.len() as u32), span);
+        if call.arguments.keywords.is_empty() {
+            self.emit(
+                Op::CallFunction(name_idx, call.arguments.args.len() as u32),
+                span,
+            );
         } else {
             // Compile keyword arguments: push name string then value
-            for kw in &call.keywords {
+            for kw in &call.arguments.keywords {
                 if let Some(ref arg_name) = kw.arg {
-                    let kw_name_idx = self.add_const(PyValue::Str(arg_name.to_string()));
+                    let kw_name_idx = self.add_const(PyValue::Str(arg_name.as_str().to_string()));
                     self.emit(Op::LoadConst(kw_name_idx), span);
                     self.compile_expr(&kw.value)?;
                 }
             }
             self.emit(
-                Op::CallFunctionKw(name_idx, call.args.len() as u32, call.keywords.len() as u32),
+                Op::CallFunctionKw(
+                    name_idx,
+                    call.arguments.args.len() as u32,
+                    call.arguments.keywords.len() as u32,
+                ),
                 span,
             );
         }
@@ -753,11 +836,11 @@ impl Compiler {
             if is_list_mut || is_dict_mut {
                 let var_idx = self.add_name(name.id.as_str());
                 // Compile arguments
-                for arg in &call.args {
+                for arg in &call.arguments.args {
                     self.compile_expr(arg)?;
                 }
                 self.emit(
-                    Op::CallMutMethod(var_idx, method_idx, call.args.len() as u32),
+                    Op::CallMutMethod(var_idx, method_idx, call.arguments.args.len() as u32),
                     span,
                 );
                 return Ok(());
@@ -766,10 +849,13 @@ impl Compiler {
 
         // Non-mutating method: push object, then args, then call
         self.compile_expr(&attr.value)?;
-        for arg in &call.args {
+        for arg in &call.arguments.args {
             self.compile_expr(arg)?;
         }
-        self.emit(Op::CallMethod(method_idx, call.args.len() as u32), span);
+        self.emit(
+            Op::CallMethod(method_idx, call.arguments.args.len() as u32),
+            span,
+        );
 
         Ok(())
     }
@@ -1068,7 +1154,7 @@ impl Compiler {
                     self.emit(Op::LoadConst(type_name_idx), span);
 
                     // Compile the first argument as the message
-                    if let Some(arg) = call.args.first() {
+                    if let Some(arg) = call.arguments.args.first() {
                         self.compile_expr(arg)?;
                     } else {
                         let none_idx = self.add_const(PyValue::None);
@@ -1105,15 +1191,15 @@ impl Compiler {
     fn compile_function_def(&mut self, func_def: &ast::StmtFunctionDef, span: Span) -> Result<()> {
         let name = func_def.name.to_string();
         let params: Vec<String> = func_def
-            .args
+            .parameters
             .args
             .iter()
-            .map(|a| a.def.arg.to_string())
+            .map(|a| a.parameter.name.to_string())
             .collect();
 
         // Collect default values from the trailing parameters that have them.
         let mut defaults = Vec::new();
-        for arg in &func_def.args.args {
+        for arg in &func_def.parameters.args {
             if let Some(ref default_expr) = arg.default {
                 let val = eval_const_expr(default_expr)?;
                 defaults.push(val);
@@ -1121,8 +1207,16 @@ impl Compiler {
         }
 
         // Read *args and **kwargs parameter names
-        let vararg = func_def.args.vararg.as_ref().map(|v| v.arg.to_string());
-        let kwarg = func_def.args.kwarg.as_ref().map(|v| v.arg.to_string());
+        let vararg = func_def
+            .parameters
+            .vararg
+            .as_ref()
+            .map(|v| v.name.to_string());
+        let kwarg = func_def
+            .parameters
+            .kwarg
+            .as_ref()
+            .map(|v| v.name.to_string());
 
         // Compile the function body into a separate CodeObject
         let mut sub_compiler = Compiler {
@@ -1184,7 +1278,19 @@ impl Compiler {
 /// empty collections (`[]`, `{}`), and tuples of constants.
 fn eval_const_expr(expr: &Expr) -> Result<PyValue> {
     match expr {
-        Expr::Constant(c) => eval_constant(&c.value),
+        Expr::NoneLiteral(_) => Ok(PyValue::None),
+        Expr::BooleanLiteral(b) => Ok(PyValue::Bool(b.value)),
+        Expr::NumberLiteral(n) => match &n.value {
+            ast::Number::Int(i) => {
+                let val: i64 = i
+                    .as_i64()
+                    .ok_or_else(|| Error::Runtime("Integer too large".to_string()))?;
+                Ok(PyValue::Int(val))
+            }
+            ast::Number::Float(f) => Ok(PyValue::Float(*f)),
+            ast::Number::Complex { .. } => Err(Error::Unsupported("Complex numbers".to_string())),
+        },
+        Expr::StringLiteral(s) => Ok(PyValue::Str(s.value.to_string())),
         Expr::UnaryOp(u) => {
             let operand = eval_const_expr(&u.operand)?;
             match u.op {
@@ -1202,8 +1308,16 @@ fn eval_const_expr(expr: &Expr) -> Result<PyValue> {
                 )),
             }
         }
+        Expr::Name(name) => match name.id.as_str() {
+            "True" => Ok(PyValue::Bool(true)),
+            "False" => Ok(PyValue::Bool(false)),
+            "None" => Ok(PyValue::None),
+            _ => Err(Error::Unsupported(
+                "Non-constant default parameter value".to_string(),
+            )),
+        },
         Expr::List(l) if l.elts.is_empty() => Ok(PyValue::List(Vec::new())),
-        Expr::Dict(d) if d.keys.is_empty() => Ok(PyValue::Dict(Vec::new())),
+        Expr::Dict(d) if d.items.is_empty() => Ok(PyValue::Dict(Vec::new())),
         Expr::Tuple(t) => {
             let items: Result<Vec<PyValue>> = t.elts.iter().map(eval_const_expr).collect();
             Ok(PyValue::List(items?))
@@ -1214,30 +1328,7 @@ fn eval_const_expr(expr: &Expr) -> Result<PyValue> {
     }
 }
 
-/// Evaluate a constant AST node into a PyValue (used during compilation).
-fn eval_constant(constant: &Constant) -> Result<PyValue> {
-    match constant {
-        Constant::None => Ok(PyValue::None),
-        Constant::Bool(b) => Ok(PyValue::Bool(*b)),
-        Constant::Int(i) => {
-            let val: i64 = i
-                .try_into()
-                .map_err(|_| Error::Runtime("Integer too large".to_string()))?;
-            Ok(PyValue::Int(val))
-        }
-        Constant::Float(f) => Ok(PyValue::Float(*f)),
-        Constant::Str(s) => Ok(PyValue::Str(s.clone())),
-        Constant::Bytes(_) => Err(Error::Unsupported("Bytes literals".to_string())),
-        Constant::Tuple(items) => {
-            let values: Result<Vec<PyValue>> = items.iter().map(eval_constant).collect();
-            Ok(PyValue::List(values?))
-        }
-        Constant::Complex { .. } => Err(Error::Unsupported("Complex numbers".to_string())),
-        Constant::Ellipsis => Err(Error::Unsupported("Ellipsis".to_string())),
-    }
-}
-
-/// Translate a rustpython binary operator to our bytecode enum.
+/// Translate a binary operator to our bytecode enum.
 fn translate_binop(op: &ast::Operator) -> BinOp {
     match op {
         ast::Operator::Add => BinOp::Add,
@@ -1256,7 +1347,7 @@ fn translate_binop(op: &ast::Operator) -> BinOp {
     }
 }
 
-/// Translate a rustpython comparison operator to our bytecode enum.
+/// Translate a comparison operator to our bytecode enum.
 fn translate_cmpop(op: &ast::CmpOp) -> bytecode::CmpOp {
     match op {
         ast::CmpOp::Eq => bytecode::CmpOp::Eq,

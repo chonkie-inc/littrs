@@ -300,7 +300,7 @@ items[::-1]   # [5, 4, 3, 2, 1]
 
 Littrs uses a two-phase execution model:
 
-1. **Compiler** (`rustpython-parser` AST &rarr; bytecode): Parses Python source into an AST using `rustpython-parser`, then compiles it into a compact bytecode representation (`CodeObject` with ~35 opcodes). Only the compiler depends on the parser crate.
+1. **Compiler** (AST &rarr; bytecode): Parses Python source into an AST using Ruff's `ruff_python_parser`, then compiles it into a compact bytecode representation (`CodeObject` with ~35 opcodes). Only the compiler depends on the parser crate.
 
 2. **VM** (bytecode &rarr; result): A stack-based virtual machine executes the bytecode. It maintains a value stack, call frames with locals, an exception stack, and global variables that persist across `execute()` calls.
 

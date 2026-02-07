@@ -28,7 +28,9 @@ littrs-macros = { version = "0.4.1", path = "crates/littrs-macros" }
 littrs-wasm = { version = "0.4.1", path = "crates/littrs-wasm" }
 
 # External dependencies
-rustpython-parser = "0.4"
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
 thiserror = "2"
 wasmtime = "37"
 wasmtime-wasi = "37"
