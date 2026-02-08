@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::bytecode::FunctionDef;
+
 /// Error when converting a PyValue to a Rust type.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeError {
@@ -52,7 +54,7 @@ pub trait FromPyValue: Sized {
 }
 
 /// Represents a Python value in the sandbox.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PyValue {
     None,
@@ -64,6 +66,28 @@ pub enum PyValue {
     Tuple(Vec<PyValue>),
     Dict(Vec<(PyValue, PyValue)>),
     Set(Vec<PyValue>),
+    /// A first-class function value (user-defined or lambda).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    Function(Box<FunctionDef>),
+}
+
+impl PartialEq for PyValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PyValue::None, PyValue::None) => true,
+            (PyValue::Bool(a), PyValue::Bool(b)) => a == b,
+            (PyValue::Int(a), PyValue::Int(b)) => a == b,
+            (PyValue::Float(a), PyValue::Float(b)) => a == b,
+            (PyValue::Str(a), PyValue::Str(b)) => a == b,
+            (PyValue::List(a), PyValue::List(b)) => a == b,
+            (PyValue::Tuple(a), PyValue::Tuple(b)) => a == b,
+            (PyValue::Dict(a), PyValue::Dict(b)) => a == b,
+            (PyValue::Set(a), PyValue::Set(b)) => a == b,
+            // Functions are never equal (identity semantics, like CPython)
+            (PyValue::Function(_), PyValue::Function(_)) => false,
+            _ => false,
+        }
+    }
 }
 
 impl PyValue {
@@ -78,6 +102,7 @@ impl PyValue {
             PyValue::Tuple(_) => "tuple",
             PyValue::Dict(_) => "dict",
             PyValue::Set(_) => "set",
+            PyValue::Function(_) => "function",
         }
     }
 
@@ -92,6 +117,7 @@ impl PyValue {
             PyValue::Tuple(t) => !t.is_empty(),
             PyValue::Dict(d) => !d.is_empty(),
             PyValue::Set(s) => !s.is_empty(),
+            PyValue::Function(_) => true,
         }
     }
 
@@ -104,7 +130,7 @@ impl PyValue {
             | PyValue::Float(_)
             | PyValue::Str(_) => true,
             PyValue::Tuple(items) => items.iter().all(|v| v.is_hashable()),
-            PyValue::List(_) | PyValue::Dict(_) | PyValue::Set(_) => false,
+            PyValue::List(_) | PyValue::Dict(_) | PyValue::Set(_) | PyValue::Function(_) => false,
         }
     }
 
@@ -180,6 +206,13 @@ impl PyValue {
                     format!("{{{}}}", inner.join(", "))
                 }
             }
+            PyValue::Function(f) => {
+                if f.name == "<lambda>" {
+                    "<function <lambda>>".to_string()
+                } else {
+                    format!("<function {}>", f.name)
+                }
+            }
         }
     }
 }
@@ -243,6 +276,13 @@ impl fmt::Display for PyValue {
                         write!(f, "{}", item)?;
                     }
                     write!(f, "}}")
+                }
+            }
+            PyValue::Function(func) => {
+                if func.name == "<lambda>" {
+                    write!(f, "<function <lambda>>")
+                } else {
+                    write!(f, "<function {}>", func.name)
                 }
             }
         }

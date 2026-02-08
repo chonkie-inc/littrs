@@ -23,7 +23,7 @@
 //! }
 //!
 //! // Register with sandbox
-//! sandbox.register(fetch_weather::Tool);
+//! sandbox.add(fetch_weather::Tool);
 //! ```
 
 use proc_macro::TokenStream;
@@ -252,7 +252,7 @@ fn is_option_type(ty: &Type) -> bool {
 ///
 /// ```ignore
 /// // Ergonomic (using Tool struct)
-/// sandbox.register(add::Tool);
+/// sandbox.add(add::Tool);
 ///
 /// // Explicit
 /// sandbox.register_tool(add::INFO.clone(), add::call);
@@ -299,11 +299,11 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
             // Generate ToolInfo arg
             if is_optional {
                 arg_infos.push(quote! {
-                    .arg_optional(#arg_name_str, #python_type, #doc)
+                    .arg_opt(#arg_name_str, #python_type, #doc)
                 });
             } else {
                 arg_infos.push(quote! {
-                    .arg_required(#arg_name_str, #python_type, #doc)
+                    .arg(#arg_name_str, #python_type, #doc)
                 });
             }
 
@@ -392,7 +392,7 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             /// Unit struct for ergonomic Tool trait registration.
             ///
-            /// Use with `sandbox.register(add::Tool)` for ergonomic registration,
+            /// Use with `sandbox.add(add::Tool)` for ergonomic registration,
             /// or use `sandbox.register_tool(add::INFO.clone(), add::call)` for explicit registration.
             pub struct Tool;
 

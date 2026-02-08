@@ -109,7 +109,7 @@ impl WasmSandbox {
     /// use littrs::{WasmSandbox, PyValue};
     ///
     /// let mut sandbox = WasmSandbox::new().unwrap();
-    /// let result = sandbox.execute("1 + 2").unwrap();
+    /// let result = sandbox.run("1 + 2").unwrap();
     /// assert_eq!(result, PyValue::Int(3));
     /// ```
     pub fn new() -> Result<Self> {
@@ -298,7 +298,7 @@ impl WasmSandbox {
     }
 
     /// Set a variable in the sandbox.
-    pub fn set_variable(
+    pub fn set(
         &mut self,
         name: impl Into<String>,
         value: impl Into<PyValue>,
@@ -346,8 +346,8 @@ impl WasmSandbox {
         Ok(())
     }
 
-    /// Execute Python code in the sandbox.
-    pub fn execute(&mut self, code: &str) -> Result<PyValue> {
+    /// Run Python code in the sandbox.
+    pub fn run(&mut self, code: &str) -> Result<PyValue> {
         // Reset fuel if configured
         if let Some(fuel) = self.config.fuel {
             self.store.set_fuel(fuel)?;

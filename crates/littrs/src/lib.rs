@@ -28,7 +28,7 @@
 //! });
 //!
 //! // Execute code
-//! let result = sandbox.execute(r#"
+//! let result = sandbox.run(r#"
 //! data = fetch_data(42)
 //! data
 //! "#).unwrap();
@@ -68,7 +68,7 @@
 //! ## Built-in Functions
 //! - `len()`, `str()`, `int()`, `float()`, `bool()`, `list()`
 //! - `range()`, `abs()`, `min()`, `max()`, `sum()`
-//! - `print()` (output captured via `execute_with_output()`)
+//! - `print()` (output captured via `capture()`)
 //!
 //! # Not Supported
 //!
@@ -99,7 +99,7 @@ mod wasm_sandbox;
 
 pub use diagnostic::{Diagnostic, FunctionCallDiagnostic, Label, Span};
 pub use error::{Error, Result};
-pub use sandbox::{ExecuteOutput, ResourceLimits, Sandbox};
+pub use sandbox::{Limits, Output, Sandbox};
 pub use tool::{ArgInfo, Tool, ToolCallError, ToolInfo};
 pub use value::{FromPyValue, PyValue, TypeError};
 

@@ -10,18 +10,18 @@ use littrs::{PyValue, WasmSandbox, WasmSandboxConfig};
 fn test_basic_arithmetic() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
-    assert_eq!(sandbox.execute("2 + 2").unwrap(), PyValue::Int(4));
-    assert_eq!(sandbox.execute("10 * 5").unwrap(), PyValue::Int(50));
-    assert_eq!(sandbox.execute("100 / 4").unwrap(), PyValue::Float(25.0));
+    assert_eq!(sandbox.run("2 + 2").unwrap(), PyValue::Int(4));
+    assert_eq!(sandbox.run("10 * 5").unwrap(), PyValue::Int(50));
+    assert_eq!(sandbox.run("100 / 4").unwrap(), PyValue::Float(25.0));
 }
 
 #[test]
 fn test_variables() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
-    sandbox.execute("x = 10").unwrap();
-    sandbox.execute("y = 20").unwrap();
-    assert_eq!(sandbox.execute("x + y").unwrap(), PyValue::Int(30));
+    sandbox.run("x = 10").unwrap();
+    sandbox.run("y = 20").unwrap();
+    assert_eq!(sandbox.run("x + y").unwrap(), PyValue::Int(30));
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn test_for_loop() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
     let result = sandbox
-        .execute(
+        .run(
             r#"
 total = 0
 for i in range(10):
@@ -52,7 +52,7 @@ fn test_register_tool() {
         })
         .unwrap();
 
-    assert_eq!(sandbox.execute("double(21)").unwrap(), PyValue::Int(42));
+    assert_eq!(sandbox.run("double(21)").unwrap(), PyValue::Int(42));
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn test_tool_with_dict_result() {
         .unwrap();
 
     let result = sandbox
-        .execute(
+        .run(
             r#"
 user = get_user(42)
 user['name']
@@ -87,9 +87,9 @@ user['name']
 fn test_set_variable() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
-    sandbox.set_variable("config_value", 100i64).unwrap();
+    sandbox.set("config_value", 100i64).unwrap();
     assert_eq!(
-        sandbox.execute("config_value * 2").unwrap(),
+        sandbox.run("config_value * 2").unwrap(),
         PyValue::Int(200)
     );
 }
@@ -100,7 +100,7 @@ fn test_fuel_limit() {
     let mut sandbox = WasmSandbox::with_config(config).unwrap();
 
     // This infinite loop should run out of fuel
-    let result = sandbox.execute(
+    let result = sandbox.run(
         r#"
 x = 0
 while True:
@@ -123,7 +123,7 @@ fn test_remaining_fuel() {
     let mut sandbox = WasmSandbox::with_config(config).unwrap();
 
     let initial_fuel = sandbox.remaining_fuel().unwrap();
-    sandbox.execute("2 + 2").unwrap();
+    sandbox.run("2 + 2").unwrap();
     let remaining_fuel = sandbox.remaining_fuel().unwrap();
 
     assert!(remaining_fuel < initial_fuel);
@@ -133,13 +133,13 @@ fn test_remaining_fuel() {
 fn test_reset() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
-    sandbox.execute("x = 42").unwrap();
-    assert_eq!(sandbox.execute("x").unwrap(), PyValue::Int(42));
+    sandbox.run("x = 42").unwrap();
+    assert_eq!(sandbox.run("x").unwrap(), PyValue::Int(42));
 
     sandbox.reset().unwrap();
 
     // After reset, x should not be defined
-    let result = sandbox.execute("x");
+    let result = sandbox.run("x");
     assert!(result.is_err());
 }
 
@@ -148,7 +148,7 @@ fn test_complex_computation() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
     let result = sandbox
-        .execute(
+        .run(
             r#"
 # Find sum of even numbers from 1 to 100
 total = 0

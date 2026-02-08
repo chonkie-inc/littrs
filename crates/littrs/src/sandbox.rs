@@ -25,8 +25,8 @@ use crate::vm::{ToolFn, Vm};
 ///     PyValue::Int(a + b)
 /// });
 ///
-/// // Execute Python code
-/// let result = sandbox.execute(r#"
+/// // Run Python code
+/// let result = sandbox.run(r#"
 /// x = add_numbers(10, 20)
 /// x * 2
 /// "#).unwrap();
@@ -66,7 +66,7 @@ impl Sandbox {
     ///     PyValue::Str(format!("Hello, {}!", name))
     /// });
     ///
-    /// let result = sandbox.execute("greet('Alice')").unwrap();
+    /// let result = sandbox.run("greet('Alice')").unwrap();
     /// assert_eq!(result, PyValue::Str("Hello, Alice!".to_string()));
     /// ```
     pub fn register_fn<F>(&mut self, name: impl Into<String>, f: F)
@@ -79,7 +79,7 @@ impl Sandbox {
     /// Register a tool with metadata that can be called from Python code.
     ///
     /// The metadata is used to generate Python documentation for the LLM's
-    /// system prompt via [`describe_tools`](Self::describe_tools).
+    /// system prompt via [`describe`](Self::describe).
     ///
     /// # Example
     ///
@@ -89,8 +89,8 @@ impl Sandbox {
     /// let mut sandbox = Sandbox::new();
     ///
     /// let info = ToolInfo::new("fetch_weather", "Get weather for a city")
-    ///     .arg_required("city", "str", "The city name")
-    ///     .arg_optional("unit", "str", "Temperature unit")
+    ///     .arg("city", "str", "The city name")
+    ///     .arg_opt("unit", "str", "Temperature unit")
     ///     .returns("dict");
     ///
     /// sandbox.register_tool(info, |args| {
@@ -102,10 +102,10 @@ impl Sandbox {
     /// });
     ///
     /// // The tool is now callable from Python
-    /// let result = sandbox.execute("fetch_weather('Paris')").unwrap();
+    /// let result = sandbox.run("fetch_weather('Paris')").unwrap();
     ///
     /// // And documented for LLMs
-    /// let docs = sandbox.describe_tools();
+    /// let docs = sandbox.describe();
     /// assert!(docs.contains("fetch_weather"));
     /// ```
     pub fn register_tool<F>(&mut self, info: ToolInfo, f: F)
@@ -132,11 +132,11 @@ impl Sandbox {
     /// fn add(a: i64, b: i64) -> i64 { a + b }
     ///
     /// let mut sandbox = Sandbox::new();
-    /// sandbox.register(add::Tool);  // Ergonomic!
+    /// sandbox.add(add::Tool);  // Ergonomic!
     ///
-    /// let result = sandbox.execute("add(2, 3)").unwrap();
+    /// let result = sandbox.run("add(2, 3)").unwrap();
     /// ```
-    pub fn register<T: crate::tool::Tool + 'static>(&mut self, _: T) {
+    pub fn add<T: crate::tool::Tool + 'static>(&mut self, _: T) {
         let info = T::info().clone();
         self.vm
             .register_tool_with_info(info.clone(), Arc::new(T::call) as ToolFn);
@@ -162,8 +162,8 @@ impl Sandbox {
     ///
     /// sandbox.register_tool(
     ///     ToolInfo::new("add", "Add two numbers")
-    ///         .arg_required("a", "int", "First number")
-    ///         .arg_required("b", "int", "Second number")
+    ///         .arg("a", "int", "First number")
+    ///         .arg("b", "int", "Second number")
     ///         .returns("int"),
     ///     |args| {
     ///         let a = args.get(0).and_then(|v| v.as_int()).unwrap_or(0);
@@ -172,16 +172,16 @@ impl Sandbox {
     ///     },
     /// );
     ///
-    /// let docs = sandbox.describe_tools();
+    /// let docs = sandbox.describe();
     /// assert!(docs.contains("def get_time() -> str:"));
     /// assert!(docs.contains("def add(a: int, b: int) -> int:"));
     /// ```
-    pub fn describe_tools(&self) -> String {
+    pub fn describe(&self) -> String {
         crate::tool::describe_tools(&self.tool_infos)
     }
 
     /// Get the tool infos for all registered tools.
-    pub fn tool_infos(&self) -> &[ToolInfo] {
+    pub fn tools(&self) -> &[ToolInfo] {
         &self.tool_infos
     }
 
@@ -193,16 +193,16 @@ impl Sandbox {
     /// use littrs::{Sandbox, PyValue};
     ///
     /// let mut sandbox = Sandbox::new();
-    /// sandbox.set_variable("x", PyValue::Int(42));
+    /// sandbox.set("x", PyValue::Int(42));
     ///
-    /// let result = sandbox.execute("x * 2").unwrap();
+    /// let result = sandbox.run("x * 2").unwrap();
     /// assert_eq!(result, PyValue::Int(84));
     /// ```
-    pub fn set_variable(&mut self, name: impl Into<String>, value: impl Into<PyValue>) {
+    pub fn set(&mut self, name: impl Into<String>, value: impl Into<PyValue>) {
         self.vm.set_variable(name, value.into());
     }
 
-    /// Execute Python code in the sandbox.
+    /// Run Python code in the sandbox.
     ///
     /// Returns the value of the last expression, or `PyValue::None` if the
     /// code ends with a statement.
@@ -222,11 +222,11 @@ impl Sandbox {
     /// let mut sandbox = Sandbox::new();
     ///
     /// // Simple expression
-    /// let result = sandbox.execute("2 + 2").unwrap();
+    /// let result = sandbox.run("2 + 2").unwrap();
     /// assert_eq!(result, PyValue::Int(4));
     ///
     /// // Multi-line code
-    /// let result = sandbox.execute(r#"
+    /// let result = sandbox.run(r#"
     /// total = 0
     /// for i in range(10):
     ///     total = total + i
@@ -234,12 +234,12 @@ impl Sandbox {
     /// "#).unwrap();
     /// assert_eq!(result, PyValue::Int(45));
     /// ```
-    pub fn execute(&mut self, code: &str) -> Result<PyValue> {
+    pub fn run(&mut self, code: &str) -> Result<PyValue> {
         let code_obj = Compiler::compile(code)?;
         self.vm.execute(code_obj)
     }
 
-    /// Execute Python code and capture print output.
+    /// Run Python code and capture print output.
     ///
     /// Returns both the result value and any output from print() calls.
     ///
@@ -250,50 +250,50 @@ impl Sandbox {
     ///
     /// let mut sandbox = Sandbox::new();
     ///
-    /// let output = sandbox.execute_with_output(r#"
+    /// let output = sandbox.capture(r#"
     /// x = 10
     /// print("x is", x)
     /// x * 2
     /// "#).unwrap();
     ///
-    /// assert_eq!(output.printed, vec!["x is 10"]);
-    /// assert_eq!(output.result.as_int(), Some(20));
+    /// assert_eq!(output.output, vec!["x is 10"]);
+    /// assert_eq!(output.value.as_int(), Some(20));
     /// ```
-    pub fn execute_with_output(&mut self, code: &str) -> Result<ExecuteOutput> {
+    pub fn capture(&mut self, code: &str) -> Result<Output> {
         // Clear any previous print output
         self.vm.clear_print_buffer();
 
         // Execute the code
         let code_obj = Compiler::compile(code)?;
-        let result = self.vm.execute(code_obj)?;
+        let value = self.vm.execute(code_obj)?;
 
         // Capture print output
-        let printed = self.vm.take_print_output();
+        let output = self.vm.take_print_output();
 
-        Ok(ExecuteOutput { result, printed })
+        Ok(Output { value, output })
     }
 
     /// Set resource limits for sandbox execution.
     ///
-    /// Limits are enforced per `execute()` call. The instruction counter
+    /// Limits are enforced per `run()` call. The instruction counter
     /// resets at the start of each execution.
     ///
     /// # Example
     ///
     /// ```
-    /// use littrs::{Sandbox, ResourceLimits};
+    /// use littrs::{Sandbox, Limits};
     ///
     /// let mut sandbox = Sandbox::new();
-    /// sandbox.set_limits(ResourceLimits {
+    /// sandbox.limit(Limits {
     ///     max_instructions: Some(1_000),
     ///     max_recursion_depth: Some(10),
     /// });
     ///
     /// // This will fail with InstructionLimitExceeded
-    /// let err = sandbox.execute("while True: pass").unwrap_err();
+    /// let err = sandbox.run("while True: pass").unwrap_err();
     /// assert!(err.to_string().contains("Instruction limit"));
     /// ```
-    pub fn set_limits(&mut self, limits: ResourceLimits) {
+    pub fn limit(&mut self, limits: Limits) {
         self.vm
             .set_limits(limits.max_instructions, limits.max_recursion_depth);
     }
@@ -301,52 +301,40 @@ impl Sandbox {
     /// Take and clear any accumulated print output.
     ///
     /// This is useful if you want to check what was printed after
-    /// calling `execute()` multiple times.
-    pub fn take_print_output(&mut self) -> Vec<String> {
+    /// calling `run()` multiple times.
+    pub fn flush(&mut self) -> Vec<String> {
         self.vm.take_print_output()
     }
 }
 
-/// Result of executing code with print output capture.
+/// Result of running code with print output capture.
 #[derive(Debug, Clone)]
-pub struct ExecuteOutput {
+pub struct Output {
     /// The result value of the last expression.
-    pub result: PyValue,
+    pub value: PyValue,
     /// Lines printed via print() calls.
-    pub printed: Vec<String>,
-}
-
-impl ExecuteOutput {
-    /// Get all printed output as a single string (newline-separated).
-    pub fn print_output(&self) -> String {
-        self.printed.join("\n")
-    }
-
-    /// Check if anything was printed.
-    pub fn has_output(&self) -> bool {
-        !self.printed.is_empty()
-    }
+    pub output: Vec<String>,
 }
 
 /// Resource limits for sandbox execution.
 ///
-/// Both limits are optional — `None` means unlimited. Use [`Sandbox::set_limits`]
-/// to apply limits before calling [`Sandbox::execute`].
+/// Both limits are optional — `None` means unlimited. Use [`Sandbox::limit`]
+/// to apply limits before calling [`Sandbox::run`].
 ///
 /// # Example
 ///
 /// ```
-/// use littrs::{Sandbox, ResourceLimits};
+/// use littrs::{Sandbox, Limits};
 ///
 /// let mut sandbox = Sandbox::new();
-/// sandbox.set_limits(ResourceLimits {
+/// sandbox.limit(Limits {
 ///     max_instructions: Some(10_000),
 ///     max_recursion_depth: Some(50),
 /// });
 /// ```
 #[derive(Debug, Clone, Default)]
-pub struct ResourceLimits {
-    /// Maximum number of bytecode instructions per `execute()` call.
+pub struct Limits {
+    /// Maximum number of bytecode instructions per `run()` call.
     /// `None` means unlimited.
     pub max_instructions: Option<u64>,
     /// Maximum call-stack depth for user-defined function calls.

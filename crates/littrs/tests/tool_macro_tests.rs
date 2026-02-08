@@ -171,7 +171,7 @@ fn test_register_tool_with_sandbox() {
     sandbox.register_tool(add::INFO.clone(), add::call);
 
     // Call it from Python
-    let result = sandbox.execute("add(5, 7)").unwrap();
+    let result = sandbox.run("add(5, 7)").unwrap();
     assert_eq!(result, PyValue::Int(12));
 }
 
@@ -181,7 +181,7 @@ fn test_describe_tools_with_macro_generated_info() {
     sandbox.register_tool(add::INFO.clone(), add::call);
     sandbox.register_tool(greet::INFO.clone(), greet::call);
 
-    let docs = sandbox.describe_tools();
+    let docs = sandbox.describe();
     assert!(docs.contains("def add(a: int, b: int) -> int:"));
     assert!(docs.contains("Add two numbers together."));
     assert!(docs.contains("def greet(name: str, prefix: str | None = None) -> str:"));
@@ -193,18 +193,18 @@ fn test_ergonomic_registration_with_tool_struct() {
     let mut sandbox = Sandbox::new();
 
     // Ergonomic registration using the generated Tool struct
-    sandbox.register(add::Tool);
-    sandbox.register(greet::Tool);
+    sandbox.add(add::Tool);
+    sandbox.add(greet::Tool);
 
     // Call from Python
-    let result = sandbox.execute("add(3, 4)").unwrap();
+    let result = sandbox.run("add(3, 4)").unwrap();
     assert_eq!(result, PyValue::Int(7));
 
-    let result = sandbox.execute("greet('World')").unwrap();
+    let result = sandbox.run("greet('World')").unwrap();
     assert_eq!(result, PyValue::Str("Hello, World!".to_string()));
 
     // Check documentation is generated
-    let docs = sandbox.describe_tools();
+    let docs = sandbox.describe();
     assert!(docs.contains("def add(a: int, b: int) -> int:"));
     assert!(docs.contains("def greet(name: str, prefix: str | None = None) -> str:"));
 }

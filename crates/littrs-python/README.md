@@ -36,13 +36,13 @@ from littrs import Sandbox
 sandbox = Sandbox()
 
 # Execute Python code
-result = sandbox.execute("2 + 2")
+result = sandbox.run("2 + 2")
 assert result == 4
 
 # Variables persist across calls
-sandbox.execute("x = 10")
-sandbox.execute("y = 20")
-result = sandbox.execute("x + y")
+sandbox.run("x = 10")
+sandbox.run("y = 20")
+result = sandbox.run("x + y")
 assert result == 30
 ```
 
@@ -58,9 +58,9 @@ def fetch_data(args):
     return {"id": id, "name": "Example"}
 
 sandbox = Sandbox()
-sandbox.register_function("fetch_data", fetch_data)
+sandbox.register("fetch_data", fetch_data)
 
-result = sandbox.execute("""
+result = sandbox.run("""
 data = fetch_data(42)
 data["name"]
 """)
@@ -73,11 +73,11 @@ Prevent runaway code from consuming unbounded resources:
 
 ```python
 sandbox = Sandbox()
-sandbox.set_limits(max_instructions=10_000, max_recursion_depth=50)
+sandbox.limit(max_instructions=10_000, max_recursion_depth=50)
 
 # This will raise an error, not hang forever
 try:
-    sandbox.execute("while True: pass")
+    sandbox.run("while True: pass")
 except RuntimeError as e:
     print(e)  # "Instruction limit exceeded (limit: 10000)"
 ```
@@ -87,7 +87,7 @@ Resource limit errors are **uncatchable** — `try`/`except` in the sandbox code
 ## Capturing Print Output
 
 ```python
-result, printed = sandbox.execute_with_output("""
+result, printed = sandbox.capture("""
 for i in range(5):
     print(i)
 "done"
@@ -102,9 +102,9 @@ Inject values into the sandbox from the host:
 
 ```python
 sandbox = Sandbox()
-sandbox.set_variable("config", {"model": "claude", "temperature": 0.7})
+sandbox.set("config", {"model": "claude", "temperature": 0.7})
 
-result = sandbox.execute('config["model"]')
+result = sandbox.run('config["model"]')
 assert result == "claude"
 ```
 
@@ -121,7 +121,7 @@ config = WasmSandboxConfig() \
 
 sandbox = WasmSandbox(config)
 
-result = sandbox.execute("sum(range(100))")
+result = sandbox.run("sum(range(100))")
 assert result == 4950
 ```
 
@@ -130,9 +130,9 @@ assert result == 4950
 * **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
 * **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
 * **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Python
-* **Control resource usage** — set instruction limits and recursion depth limits per execution call. Resource limit violations are uncatchable (they bypass `try`/`except`)
+* **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
 * **Capture stdout** — `print()` output is collected and returned to the caller
-* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, execute code
+* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, run code
 
 ## What Littrs Cannot Do
 

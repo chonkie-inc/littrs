@@ -233,6 +233,18 @@ pub enum Op {
     /// modify the variable in place rather than operating on a cloned value.
     CallMutMethod(u32, u32, u32),
 
+    /// Call a callable value on the stack with positional arguments.
+    ///
+    /// Stack layout: `[callable, arg0, arg1, ...]`. Pops `n_args` arguments
+    /// and the callable, dispatches the call, and pushes the return value.
+    CallValue(u32),
+
+    /// Call a callable value on the stack with positional and keyword arguments.
+    ///
+    /// Stack layout: `[callable, pos_args..., kw_name0, kw_val0, ...]`.
+    /// `n_pos` positional args + `n_kw` keyword pairs.
+    CallValueKw(u32, u32),
+
     // --- F-strings ---
     /// Pop TOS, convert it to its print representation via `to_print_string()`,
     /// push the resulting string.

@@ -47,7 +47,6 @@ pub fn try_builtin(
         "range" => BuiltinResult::Handled(builtin_range(args)),
         "enumerate" => BuiltinResult::Handled(builtin_enumerate(args)),
         "zip" => BuiltinResult::Handled(builtin_zip(args)),
-        "sorted" => BuiltinResult::Handled(builtin_sorted(args)),
         "reversed" => BuiltinResult::Handled(builtin_reversed(args)),
         "any" => BuiltinResult::Handled(builtin_any(args)),
         "all" => BuiltinResult::Handled(builtin_all(args)),
@@ -395,30 +394,6 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
         .collect();
 
     Ok(PyValue::List(result))
-}
-
-fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "sorted() takes exactly 1 argument (reverse not yet supported)".to_string(),
-        ));
-    }
-
-    let mut items = to_iterable_items(&args[0])?;
-
-    // Sort using comparison - only works for homogeneous lists
-    items.sort_by(|a, b| {
-        match (a, b) {
-            (PyValue::Int(x), PyValue::Int(y)) => x.cmp(y),
-            (PyValue::Float(x), PyValue::Float(y)) => {
-                x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
-            }
-            (PyValue::Str(x), PyValue::Str(y)) => x.cmp(y),
-            _ => std::cmp::Ordering::Equal, // Can't compare, keep order
-        }
-    });
-
-    Ok(PyValue::List(items))
 }
 
 fn builtin_reversed(args: Vec<PyValue>) -> Result<PyValue> {

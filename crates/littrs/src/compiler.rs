@@ -578,6 +578,10 @@ impl Compiler {
                 self.compile_list_comprehension(&genexp.elt, &genexp.generators, span)?;
             }
 
+            Expr::Lambda(lambda) => {
+                self.compile_lambda(lambda, span)?;
+            }
+
             Expr::FString(fstring) => {
                 let mut n_parts = 0u32;
                 for part in fstring.value.iter() {
@@ -783,17 +787,47 @@ impl Compiler {
             return self.compile_method_call(attr, call, span);
         }
 
-        // Must be a named function call
-        let func_name = match call.func.as_ref() {
-            Expr::Name(name) => name.id.to_string(),
-            _ => {
-                return Err(Error::Unsupported(
-                    "Only named function calls supported".to_string(),
-                ));
-            }
-        };
+        // Named function call — use CallFunction/CallFunctionKw (by-name dispatch)
+        if let Expr::Name(name) = call.func.as_ref() {
+            let func_name = name.id.to_string();
+            let name_idx = self.add_name(&func_name);
 
-        let name_idx = self.add_name(&func_name);
+            // Compile positional arguments
+            for arg in &call.arguments.args {
+                self.compile_expr(arg)?;
+            }
+
+            if call.arguments.keywords.is_empty() {
+                self.emit(
+                    Op::CallFunction(name_idx, call.arguments.args.len() as u32),
+                    span,
+                );
+            } else {
+                // Compile keyword arguments: push name string then value
+                for kw in &call.arguments.keywords {
+                    if let Some(ref arg_name) = kw.arg {
+                        let kw_name_idx =
+                            self.add_const(PyValue::Str(arg_name.as_str().to_string()));
+                        self.emit(Op::LoadConst(kw_name_idx), span);
+                        self.compile_expr(&kw.value)?;
+                    }
+                }
+                self.emit(
+                    Op::CallFunctionKw(
+                        name_idx,
+                        call.arguments.args.len() as u32,
+                        call.arguments.keywords.len() as u32,
+                    ),
+                    span,
+                );
+            }
+
+            return Ok(());
+        }
+
+        // Non-name call (e.g. lambda call, variable holding function)
+        // Compile the callable expression
+        self.compile_expr(&call.func)?;
 
         // Compile positional arguments
         for arg in &call.arguments.args {
@@ -801,10 +835,7 @@ impl Compiler {
         }
 
         if call.arguments.keywords.is_empty() {
-            self.emit(
-                Op::CallFunction(name_idx, call.arguments.args.len() as u32),
-                span,
-            );
+            self.emit(Op::CallValue(call.arguments.args.len() as u32), span);
         } else {
             // Compile keyword arguments: push name string then value
             for kw in &call.arguments.keywords {
@@ -815,8 +846,7 @@ impl Compiler {
                 }
             }
             self.emit(
-                Op::CallFunctionKw(
-                    name_idx,
+                Op::CallValueKw(
                     call.arguments.args.len() as u32,
                     call.arguments.keywords.len() as u32,
                 ),
@@ -1272,7 +1302,67 @@ impl Compiler {
         });
 
         self.emit(Op::MakeFunction(func_idx), span);
-        self.emit(Op::Pop, span); // MakeFunction pushes None; discard it
+        let name_idx = self.add_name(&name);
+        self.emit(Op::StoreName(name_idx), span);
+
+        Ok(())
+    }
+
+    /// Compile a lambda expression (`lambda params: body`).
+    ///
+    /// Similar to `compile_function_def` but the body is a single expression
+    /// (not a block of statements), and the result is left on the stack
+    /// (no `StoreName`).
+    fn compile_lambda(&mut self, lambda: &ast::ExprLambda, span: Span) -> Result<()> {
+        // Extract parameters (None means zero-param lambda)
+        let (params, defaults, vararg, kwarg) = if let Some(ref parameters) = lambda.parameters {
+            let params: Vec<String> = parameters
+                .args
+                .iter()
+                .map(|a| a.parameter.name.to_string())
+                .collect();
+
+            let mut defaults = Vec::new();
+            for arg in &parameters.args {
+                if let Some(ref default_expr) = arg.default {
+                    let val = eval_const_expr(default_expr)?;
+                    defaults.push(val);
+                }
+            }
+
+            let vararg = parameters.vararg.as_ref().map(|v| v.name.to_string());
+            let kwarg = parameters.kwarg.as_ref().map(|v| v.name.to_string());
+
+            (params, defaults, vararg, kwarg)
+        } else {
+            (Vec::new(), Vec::new(), None, None)
+        };
+
+        // Compile the lambda body into a separate CodeObject
+        let mut sub_compiler = Compiler {
+            code: CodeObject::new(self.code.source.clone()),
+            loop_stack: Vec::new(),
+            comp_counter: self.comp_counter,
+        };
+
+        sub_compiler.compile_expr(&lambda.body)?;
+        sub_compiler.emit(Op::ReturnValue, span);
+
+        // Propagate the comprehension counter
+        self.comp_counter = sub_compiler.comp_counter;
+
+        let func_idx = self.code.functions.len() as u32;
+        self.code.functions.push(FunctionDef {
+            name: "<lambda>".to_string(),
+            params,
+            defaults,
+            vararg,
+            kwarg,
+            code: sub_compiler.code,
+        });
+
+        // Leave the function value on the stack (no StoreName for lambdas)
+        self.emit(Op::MakeFunction(func_idx), span);
 
         Ok(())
     }

@@ -72,7 +72,7 @@ impl std::error::Error for ToolCallError {}
 /// fn add(a: i64, b: i64) -> i64 { a + b }
 ///
 /// let mut sandbox = Sandbox::new();
-/// sandbox.register(add);  // Ergonomic registration
+/// sandbox.add(add);  // Ergonomic registration
 /// ```
 pub trait Tool {
     /// Get the tool's metadata.
@@ -135,11 +135,11 @@ impl ArgInfo {
 /// use littrs::ToolInfo;
 ///
 /// let tool = ToolInfo::new("fetch_weather", "Get current weather for a city")
-///     .arg_required("city", "str", "The city name")
-///     .arg_optional("unit", "str", "Temperature unit (celsius or fahrenheit)")
+///     .arg("city", "str", "The city name")
+///     .arg_opt("unit", "str", "Temperature unit (celsius or fahrenheit)")
 ///     .returns("dict");
 ///
-/// println!("{}", tool.to_python_doc());
+/// println!("{}", tool.doc());
 /// // Output:
 /// // def fetch_weather(city: str, unit: str | None = None) -> dict:
 /// //     """Get current weather for a city.
@@ -173,7 +173,7 @@ impl ToolInfo {
     }
 
     /// Add a required argument.
-    pub fn arg_required(
+    pub fn arg(
         mut self,
         name: impl Into<String>,
         python_type: impl Into<String>,
@@ -185,7 +185,7 @@ impl ToolInfo {
     }
 
     /// Add an optional argument.
-    pub fn arg_optional(
+    pub fn arg_opt(
         mut self,
         name: impl Into<String>,
         python_type: impl Into<String>,
@@ -205,7 +205,7 @@ impl ToolInfo {
     /// Generate a Python function signature.
     ///
     /// Example: `fetch_weather(city: str, unit: str | None = None) -> dict`
-    pub fn to_python_signature(&self) -> String {
+    pub fn signature(&self) -> String {
         let args: Vec<String> = self
             .args
             .iter()
@@ -233,8 +233,8 @@ impl ToolInfo {
     ///         unit: Temperature unit (celsius or fahrenheit)
     ///     """
     /// ```
-    pub fn to_python_doc(&self) -> String {
-        let mut doc = format!("def {}:\n", self.to_python_signature());
+    pub fn doc(&self) -> String {
+        let mut doc = format!("def {}:\n", self.signature());
         doc.push_str(&format!("    \"\"\"{}\n", self.description));
 
         if !self.args.is_empty() {
@@ -251,7 +251,7 @@ impl ToolInfo {
 
 impl fmt::Display for ToolInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_python_doc())
+        write!(f, "{}", self.doc())
     }
 }
 
@@ -261,7 +261,7 @@ impl fmt::Display for ToolInfo {
 pub fn describe_tools(tools: &[ToolInfo]) -> String {
     tools
         .iter()
-        .map(|t| t.to_python_doc())
+        .map(|t| t.doc())
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -273,26 +273,26 @@ mod tests {
     #[test]
     fn test_tool_signature_no_args() {
         let tool = ToolInfo::new("get_time", "Get the current time").returns("str");
-        assert_eq!(tool.to_python_signature(), "get_time() -> str");
+        assert_eq!(tool.signature(), "get_time() -> str");
     }
 
     #[test]
     fn test_tool_signature_required_args() {
         let tool = ToolInfo::new("add", "Add two numbers")
-            .arg_required("a", "int", "First number")
-            .arg_required("b", "int", "Second number")
+            .arg("a", "int", "First number")
+            .arg("b", "int", "Second number")
             .returns("int");
-        assert_eq!(tool.to_python_signature(), "add(a: int, b: int) -> int");
+        assert_eq!(tool.signature(), "add(a: int, b: int) -> int");
     }
 
     #[test]
     fn test_tool_signature_mixed_args() {
         let tool = ToolInfo::new("search", "Search for items")
-            .arg_required("query", "str", "Search query")
-            .arg_optional("limit", "int", "Max results")
+            .arg("query", "str", "Search query")
+            .arg_opt("limit", "int", "Max results")
             .returns("list[str]");
         assert_eq!(
-            tool.to_python_signature(),
+            tool.signature(),
             "search(query: str, limit: int | None = None) -> list[str]"
         );
     }
@@ -300,11 +300,11 @@ mod tests {
     #[test]
     fn test_tool_python_doc() {
         let tool = ToolInfo::new("fetch_weather", "Get current weather for a city.")
-            .arg_required("city", "str", "The city name")
-            .arg_optional("unit", "str", "Temperature unit")
+            .arg("city", "str", "The city name")
+            .arg_opt("unit", "str", "Temperature unit")
             .returns("dict");
 
-        let doc = tool.to_python_doc();
+        let doc = tool.doc();
         assert!(doc.contains("def fetch_weather(city: str, unit: str | None = None) -> dict:"));
         assert!(doc.contains("\"\"\"Get current weather for a city."));
         assert!(doc.contains("Args:"));

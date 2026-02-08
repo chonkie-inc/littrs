@@ -83,8 +83,6 @@ pub struct Vm {
     globals: HashMap<String, PyValue>,
     /// Host-registered tool functions.
     tools: HashMap<String, RegisteredTool>,
-    /// User-defined functions (registered via `def` at the top level).
-    user_functions: HashMap<String, FunctionDef>,
     /// Captured output from `print()` calls.
     print_buffer: Vec<String>,
     /// Maximum number of bytecode instructions per `execute()` call.
@@ -108,7 +106,6 @@ impl Vm {
             stack: Vec::new(),
             globals: HashMap::new(),
             tools: HashMap::new(),
-            user_functions: HashMap::new(),
             print_buffer: Vec::new(),
             instruction_limit: None,
             recursion_limit: None,
@@ -505,6 +502,12 @@ impl Vm {
                 let method = frames.last().unwrap().code.names[method_idx as usize].clone();
                 self.call_mut_method(frames, &var_name, &method, n_args as usize)?;
             }
+            Op::CallValue(n_args) => {
+                self.call_value(frames, n_args as usize, 0)?;
+            }
+            Op::CallValueKw(n_pos, n_kw) => {
+                self.call_value(frames, n_pos as usize, n_kw as usize)?;
+            }
 
             // --- F-strings ---
             Op::FormatValue => {
@@ -528,8 +531,7 @@ impl Vm {
             // --- Function definitions ---
             Op::MakeFunction(i) => {
                 let func_def = frames.last().unwrap().code.functions[i as usize].clone();
-                self.user_functions.insert(func_def.name.clone(), func_def);
-                self.stack.push(PyValue::None);
+                self.stack.push(PyValue::Function(Box::new(func_def)));
             }
             Op::ReturnValue => {
                 let retval = self.stack.pop().unwrap_or(PyValue::None);
@@ -902,6 +904,26 @@ impl Vm {
         let start = self.stack.len() - n_pos;
         let pos_args: Vec<PyValue> = self.stack.drain(start..).collect();
 
+        // 0. Callable-aware builtins (sorted, map, filter)
+        match name {
+            "sorted" => {
+                let result = self.builtin_sorted(frames, pos_args, kw_pairs)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+            "map" if n_kw == 0 => {
+                let result = self.builtin_map(frames, pos_args)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+            "filter" if n_kw == 0 => {
+                let result = self.builtin_filter(frames, pos_args)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+            _ => {}
+        }
+
         // 1. Try builtins (no keyword support for builtins)
         if n_kw == 0 {
             match try_builtin(name, pos_args.clone(), &mut self.print_buffer) {
@@ -920,111 +942,374 @@ impl Vm {
             return Ok(());
         }
 
-        // 3. Try user-defined functions
-        if let Some(func) = self.user_functions.get(name).cloned() {
-            let n_params = func.params.len();
-            let n_defaults = func.defaults.len();
-            let n_required = n_params - n_defaults;
-            let has_vararg = func.vararg.is_some();
-            let has_kwarg = func.kwarg.is_some();
+        // 3. Try user-defined functions (look up in locals then globals)
+        let func = frames
+            .last()
+            .and_then(|f| f.locals.get(name))
+            .or_else(|| self.globals.get(name))
+            .cloned();
 
-            // Step 1: Bind positional args to named params
-            let mut bound: Vec<Option<PyValue>> = vec![None; n_params];
-            let mut extra_positional = Vec::new();
-
-            for (i, val) in pos_args.into_iter().enumerate() {
-                if i < n_params {
-                    bound[i] = Some(val);
-                } else if has_vararg {
-                    extra_positional.push(val);
-                } else {
-                    return Err(Error::Runtime(format!(
-                        "{}() takes {} argument(s), {} given",
-                        name,
-                        n_params,
-                        i + 1 + extra_positional.len()
-                    )));
-                }
-            }
-
-            // Step 2: Map keyword args to named params or collect into **kwargs
-            let mut extra_kwargs: Vec<(String, PyValue)> = Vec::new();
-
-            for (kw_name, kw_val) in kw_pairs {
-                if let Some(pos) = func.params.iter().position(|p| p == &kw_name) {
-                    if bound[pos].is_some() {
-                        return Err(Error::Runtime(format!(
-                            "{}() got multiple values for argument '{}'",
-                            name, kw_name
-                        )));
-                    }
-                    bound[pos] = Some(kw_val);
-                } else if has_kwarg {
-                    extra_kwargs.push((kw_name, kw_val));
-                } else {
-                    return Err(Error::Runtime(format!(
-                        "{}() got an unexpected keyword argument '{}'",
-                        name, kw_name
-                    )));
-                }
-            }
-
-            // Step 3: Fill missing params from defaults
-            #[allow(clippy::needless_range_loop)]
-            for i in 0..n_params {
-                if bound[i].is_none() {
-                    let default_idx = i as isize - n_required as isize;
-                    if default_idx >= 0 && (default_idx as usize) < n_defaults {
-                        bound[i] = Some(func.defaults[default_idx as usize].clone());
-                    } else {
-                        return Err(Error::Runtime(format!(
-                            "{}() missing required argument: '{}'",
-                            name, func.params[i]
-                        )));
-                    }
-                }
-            }
-
-            // Check recursion limit before pushing a new frame
-            if let Some(limit) = self.recursion_limit
-                && frames.len() >= limit
-            {
-                return Err(Error::RecursionLimitExceeded(limit));
-            }
-
-            // Build locals from parameters
-            let mut locals = HashMap::new();
-            for (param, val) in func.params.iter().zip(bound.into_iter()) {
-                locals.insert(param.clone(), val.unwrap());
-            }
-
-            // Bind *args (tuple in Python)
-            if let Some(ref vararg_name) = func.vararg {
-                locals.insert(vararg_name.clone(), PyValue::Tuple(extra_positional));
-            }
-
-            // Bind **kwargs
-            if let Some(ref kwarg_name) = func.kwarg {
-                let kwargs_pairs: Vec<(PyValue, PyValue)> = extra_kwargs
-                    .into_iter()
-                    .map(|(k, v)| (PyValue::Str(k), v))
-                    .collect();
-                locals.insert(kwarg_name.clone(), PyValue::Dict(kwargs_pairs));
-            }
-
-            let new_frame = CallFrame {
-                code: func.code.clone(),
-                ip: 0,
-                locals,
-                stack_base: self.stack.len(),
-                iterators: Vec::new(),
-            };
-            frames.push(new_frame);
-            return Ok(());
+        if let Some(PyValue::Function(func)) = func {
+            return self.invoke_function_def(frames, &func, name, pos_args, kw_pairs);
         }
 
         // 4. Nothing matched
         Err(Error::NameError(name.to_string()))
+    }
+
+    /// Bind arguments to a FunctionDef and push a new call frame.
+    ///
+    /// Shared by `call_function` (by-name lookup) and `call_value` (stack-based).
+    fn invoke_function_def(
+        &mut self,
+        frames: &mut Vec<CallFrame>,
+        func: &FunctionDef,
+        name: &str,
+        pos_args: Vec<PyValue>,
+        kw_pairs: Vec<(String, PyValue)>,
+    ) -> Result<()> {
+        let n_params = func.params.len();
+        let n_defaults = func.defaults.len();
+        let n_required = n_params - n_defaults;
+        let has_vararg = func.vararg.is_some();
+        let has_kwarg = func.kwarg.is_some();
+
+        // Step 1: Bind positional args to named params
+        let mut bound: Vec<Option<PyValue>> = vec![None; n_params];
+        let mut extra_positional = Vec::new();
+
+        for (i, val) in pos_args.into_iter().enumerate() {
+            if i < n_params {
+                bound[i] = Some(val);
+            } else if has_vararg {
+                extra_positional.push(val);
+            } else {
+                return Err(Error::Runtime(format!(
+                    "{}() takes {} argument(s), {} given",
+                    name,
+                    n_params,
+                    i + 1 + extra_positional.len()
+                )));
+            }
+        }
+
+        // Step 2: Map keyword args to named params or collect into **kwargs
+        let mut extra_kwargs: Vec<(String, PyValue)> = Vec::new();
+
+        for (kw_name, kw_val) in kw_pairs {
+            if let Some(pos) = func.params.iter().position(|p| p == &kw_name) {
+                if bound[pos].is_some() {
+                    return Err(Error::Runtime(format!(
+                        "{}() got multiple values for argument '{}'",
+                        name, kw_name
+                    )));
+                }
+                bound[pos] = Some(kw_val);
+            } else if has_kwarg {
+                extra_kwargs.push((kw_name, kw_val));
+            } else {
+                return Err(Error::Runtime(format!(
+                    "{}() got an unexpected keyword argument '{}'",
+                    name, kw_name
+                )));
+            }
+        }
+
+        // Step 3: Fill missing params from defaults
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n_params {
+            if bound[i].is_none() {
+                let default_idx = i as isize - n_required as isize;
+                if default_idx >= 0 && (default_idx as usize) < n_defaults {
+                    bound[i] = Some(func.defaults[default_idx as usize].clone());
+                } else {
+                    return Err(Error::Runtime(format!(
+                        "{}() missing required argument: '{}'",
+                        name, func.params[i]
+                    )));
+                }
+            }
+        }
+
+        // Check recursion limit before pushing a new frame
+        if let Some(limit) = self.recursion_limit
+            && frames.len() >= limit
+        {
+            return Err(Error::RecursionLimitExceeded(limit));
+        }
+
+        // Build locals from parameters
+        let mut locals = HashMap::new();
+        for (param, val) in func.params.iter().zip(bound.into_iter()) {
+            locals.insert(param.clone(), val.unwrap());
+        }
+
+        // Bind *args (tuple in Python)
+        if let Some(ref vararg_name) = func.vararg {
+            locals.insert(vararg_name.clone(), PyValue::Tuple(extra_positional));
+        }
+
+        // Bind **kwargs
+        if let Some(ref kwarg_name) = func.kwarg {
+            let kwargs_pairs: Vec<(PyValue, PyValue)> = extra_kwargs
+                .into_iter()
+                .map(|(k, v)| (PyValue::Str(k), v))
+                .collect();
+            locals.insert(kwarg_name.clone(), PyValue::Dict(kwargs_pairs));
+        }
+
+        let new_frame = CallFrame {
+            code: func.code.clone(),
+            ip: 0,
+            locals,
+            stack_base: self.stack.len(),
+            iterators: Vec::new(),
+        };
+        frames.push(new_frame);
+        Ok(())
+    }
+
+    /// Call a callable value on the stack.
+    ///
+    /// Pops keyword pairs, positional args, and the callable from the stack.
+    /// Dispatches to `invoke_function_def` for `PyValue::Function`.
+    fn call_value(&mut self, frames: &mut Vec<CallFrame>, n_pos: usize, n_kw: usize) -> Result<()> {
+        // Pop keyword args (name, value pairs) in reverse
+        let mut kw_pairs: Vec<(String, PyValue)> = Vec::with_capacity(n_kw);
+        for _ in 0..n_kw {
+            let value = self.stack.pop().unwrap_or(PyValue::None);
+            let key_val = self.stack.pop().unwrap_or(PyValue::None);
+            let key = match key_val {
+                PyValue::Str(s) => s,
+                _ => {
+                    return Err(Error::Runtime(
+                        "keyword argument name must be a string".to_string(),
+                    ));
+                }
+            };
+            kw_pairs.push((key, value));
+        }
+        kw_pairs.reverse();
+
+        // Pop positional args
+        let start = self.stack.len() - n_pos;
+        let pos_args: Vec<PyValue> = self.stack.drain(start..).collect();
+
+        // Pop the callable
+        let callable = self.stack.pop().unwrap_or(PyValue::None);
+
+        match callable {
+            PyValue::Function(func) => {
+                let name = func.name.clone();
+                self.invoke_function_def(frames, &func, &name, pos_args, kw_pairs)
+            }
+            other => Err(Error::Runtime(format!(
+                "TypeError: '{}' object is not callable",
+                other.type_name()
+            ))),
+        }
+    }
+
+    /// Synchronously invoke a function and return its result.
+    ///
+    /// Creates a fresh frame stack, runs the function to completion, and
+    /// returns the result. Used by builtins like `sorted(key=...)`, `map`,
+    /// and `filter` that need to call user functions during execution.
+    fn invoke_sync(
+        &mut self,
+        func: &FunctionDef,
+        args: Vec<PyValue>,
+        outer_frames: &mut [CallFrame],
+    ) -> Result<PyValue> {
+        let mut locals = HashMap::new();
+        for (param, val) in func.params.iter().zip(args) {
+            locals.insert(param.clone(), val);
+        }
+        let frame = CallFrame {
+            code: func.code.clone(),
+            ip: 0,
+            locals,
+            stack_base: self.stack.len(),
+            iterators: Vec::new(),
+        };
+
+        // Check recursion limit (count outer frames + 1 for the new frame)
+        if let Some(limit) = self.recursion_limit
+            && (outer_frames.len() + 1) >= limit
+        {
+            return Err(Error::RecursionLimitExceeded(limit));
+        }
+
+        let mut frames = vec![frame];
+        self.run(&mut frames)
+    }
+
+    // -----------------------------------------------------------------------
+    // Callable-aware builtins
+    // -----------------------------------------------------------------------
+
+    /// `sorted(iterable, key=None, reverse=False)`
+    fn builtin_sorted(
+        &mut self,
+        frames: &mut [CallFrame],
+        pos_args: Vec<PyValue>,
+        kw_pairs: Vec<(String, PyValue)>,
+    ) -> Result<PyValue> {
+        if pos_args.is_empty() || pos_args.len() > 1 {
+            return Err(Error::Runtime(
+                "sorted() requires exactly 1 positional argument".to_string(),
+            ));
+        }
+
+        let mut items = match &pos_args[0] {
+            PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => items.clone(),
+            PyValue::Dict(pairs) => pairs.iter().map(|(k, _)| k.clone()).collect(),
+            PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
+            other => {
+                return Err(Error::Type {
+                    expected: "iterable".to_string(),
+                    got: other.type_name().to_string(),
+                });
+            }
+        };
+
+        let mut key_func: Option<FunctionDef> = None;
+        let mut reverse = false;
+
+        for (kw_name, kw_val) in kw_pairs {
+            match kw_name.as_str() {
+                "key" => match kw_val {
+                    PyValue::Function(f) => key_func = Some(*f),
+                    PyValue::None => {}
+                    other => {
+                        return Err(Error::Runtime(format!(
+                            "TypeError: '{}' object is not callable",
+                            other.type_name()
+                        )));
+                    }
+                },
+                "reverse" => {
+                    reverse = kw_val.is_truthy();
+                }
+                other => {
+                    return Err(Error::Runtime(format!(
+                        "sorted() got an unexpected keyword argument '{}'",
+                        other
+                    )));
+                }
+            }
+        }
+
+        if let Some(ref func) = key_func {
+            // Compute keys for each item
+            let mut keyed: Vec<(PyValue, PyValue)> = Vec::with_capacity(items.len());
+            for item in items {
+                let key = self.invoke_sync(func, vec![item.clone()], frames)?;
+                keyed.push((key, item));
+            }
+            keyed.sort_by(|(a, _), (b, _)| compare_for_sort(a, b));
+            items = keyed.into_iter().map(|(_, item)| item).collect();
+        } else {
+            items.sort_by(compare_for_sort);
+        }
+
+        if reverse {
+            items.reverse();
+        }
+
+        Ok(PyValue::List(items))
+    }
+
+    /// `map(func, iterable)` — apply func to each item, return list.
+    fn builtin_map(&mut self, frames: &mut [CallFrame], pos_args: Vec<PyValue>) -> Result<PyValue> {
+        if pos_args.len() != 2 {
+            return Err(Error::Runtime(
+                "map() requires exactly 2 arguments".to_string(),
+            ));
+        }
+        let func = match &pos_args[0] {
+            PyValue::Function(f) => (**f).clone(),
+            other => {
+                return Err(Error::Runtime(format!(
+                    "TypeError: '{}' object is not callable",
+                    other.type_name()
+                )));
+            }
+        };
+
+        let items = match &pos_args[1] {
+            PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => items.clone(),
+            PyValue::Dict(pairs) => pairs.iter().map(|(k, _)| k.clone()).collect(),
+            PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
+            other => {
+                return Err(Error::Type {
+                    expected: "iterable".to_string(),
+                    got: other.type_name().to_string(),
+                });
+            }
+        };
+
+        let mut results = Vec::with_capacity(items.len());
+        for item in items {
+            let result = self.invoke_sync(&func, vec![item], frames)?;
+            results.push(result);
+        }
+
+        Ok(PyValue::List(results))
+    }
+
+    /// `filter(func_or_none, iterable)` — keep items where func returns truthy.
+    fn builtin_filter(
+        &mut self,
+        frames: &mut [CallFrame],
+        pos_args: Vec<PyValue>,
+    ) -> Result<PyValue> {
+        if pos_args.len() != 2 {
+            return Err(Error::Runtime(
+                "filter() requires exactly 2 arguments".to_string(),
+            ));
+        }
+
+        let items = match &pos_args[1] {
+            PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => items.clone(),
+            PyValue::Dict(pairs) => pairs.iter().map(|(k, _)| k.clone()).collect(),
+            PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
+            other => {
+                return Err(Error::Type {
+                    expected: "iterable".to_string(),
+                    got: other.type_name().to_string(),
+                });
+            }
+        };
+
+        let mut results = Vec::new();
+
+        match &pos_args[0] {
+            PyValue::Function(func) => {
+                let func = (**func).clone();
+                for item in items {
+                    let result = self.invoke_sync(&func, vec![item.clone()], frames)?;
+                    if result.is_truthy() {
+                        results.push(item);
+                    }
+                }
+            }
+            PyValue::None => {
+                for item in items {
+                    if item.is_truthy() {
+                        results.push(item);
+                    }
+                }
+            }
+            other => {
+                return Err(Error::Runtime(format!(
+                    "TypeError: '{}' object is not callable",
+                    other.type_name()
+                )));
+            }
+        }
+
+        Ok(PyValue::List(results))
     }
 
     /// Call a registered tool, mapping keyword arguments and validating types.
@@ -1321,6 +1606,24 @@ fn is_uncatchable(err: &Error) -> bool {
 /// must match exactly.
 fn exception_matches(actual: &str, expected: &str) -> bool {
     matches!(expected, "Exception" | "BaseException") || actual == expected
+}
+
+/// Compare two PyValues for sorting (used by `sorted()`).
+fn compare_for_sort(a: &PyValue, b: &PyValue) -> std::cmp::Ordering {
+    match (a, b) {
+        (PyValue::Int(x), PyValue::Int(y)) => x.cmp(y),
+        (PyValue::Float(x), PyValue::Float(y)) => {
+            x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal)
+        }
+        (PyValue::Int(x), PyValue::Float(y)) => (*x as f64)
+            .partial_cmp(y)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (PyValue::Float(x), PyValue::Int(y)) => x
+            .partial_cmp(&(*y as f64))
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (PyValue::Str(x), PyValue::Str(y)) => x.cmp(y),
+        _ => std::cmp::Ordering::Equal,
+    }
 }
 
 /// Search the exception table for a handler covering the given instruction index.

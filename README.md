@@ -33,11 +33,11 @@ For motivation on why you might want to do this, see:
 * **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
 * **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
 * **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Rust or Python
-* **Control resource usage** — set instruction limits and recursion depth limits per execution call. Resource limit violations are uncatchable (they bypass `try`/`except`)
+* **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
 * **Capture stdout** — `print()` output is collected and returned to the caller
 * **Be called from Rust or Python** — native Rust API with PyO3 bindings for Python. A WASM guest module is also available for stronger isolation
 * **Generate tool documentation for LLMs** — auto-generate Python-style function signatures and docstrings from registered tools, suitable for embedding in system prompts
-* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, execute code
+* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, run code
 
 ## What Littrs cannot do
 
@@ -70,7 +70,7 @@ Littrs can be called from Rust or Python.
 
 ### Rust
 
-The core API is the `Sandbox`. Create one, optionally register tools, and call `execute()`:
+The core API is the `Sandbox`. Create one, optionally register tools, and call `run()`:
 
 ```rust
 use littrs::{Sandbox, PyValue};
@@ -87,7 +87,7 @@ sandbox.register_fn("fetch_data", |args| {
 });
 
 // Execute LLM-generated code
-let result = sandbox.execute(r#"
+let result = sandbox.run(r#"
 data = fetch_data(42)
 data["name"]
 "#).unwrap();
@@ -95,12 +95,12 @@ data["name"]
 assert_eq!(result, PyValue::Str("Example".to_string()));
 ```
 
-Variables persist across `execute()` calls on the same sandbox:
+Variables persist across `run()` calls on the same sandbox:
 
 ```rust
-sandbox.execute("x = 10").unwrap();
-sandbox.execute("y = 20").unwrap();
-let result = sandbox.execute("x + y").unwrap();
+sandbox.run("x = 10").unwrap();
+sandbox.run("y = 20").unwrap();
+let result = sandbox.run("x + y").unwrap();
 assert_eq!(result, PyValue::Int(30));
 ```
 
@@ -109,16 +109,16 @@ assert_eq!(result, PyValue::Int(30));
 Prevent runaway code from consuming unbounded resources:
 
 ```rust
-use littrs::{Sandbox, ResourceLimits};
+use littrs::{Sandbox, Limits};
 
 let mut sandbox = Sandbox::new();
-sandbox.set_limits(ResourceLimits {
-    max_instructions: Some(10_000),   // cap bytecode instructions per execute() call
+sandbox.limit(Limits {
+    max_instructions: Some(10_000),   // cap bytecode instructions per run() call
     max_recursion_depth: Some(50),    // cap call-stack depth
 });
 
 // This will return an error, not hang forever
-let err = sandbox.execute("while True: pass").unwrap_err();
+let err = sandbox.run("while True: pass").unwrap_err();
 assert!(err.to_string().contains("Instruction limit"));
 ```
 
@@ -135,8 +135,8 @@ let mut sandbox = Sandbox::new();
 
 sandbox.register_tool(
     ToolInfo::new("get_weather", "Get the current weather for a city")
-        .arg_required("city", "str", "The city name")
-        .arg_optional("units", "str", "Temperature units (C or F)")
+        .arg("city", "str", "The city name")
+        .arg_opt("units", "str", "Temperature units (C or F)")
         .returns("dict"),
     |args| {
         let city = args[0].as_str().unwrap_or("Unknown");
@@ -147,7 +147,7 @@ sandbox.register_tool(
     },
 );
 
-let docs = sandbox.describe_tools();
+let docs = sandbox.describe();
 // Produces:
 // def get_weather(city: str, units: str = None) -> dict:
 //     """Get the current weather for a city"""
@@ -157,14 +157,14 @@ let docs = sandbox.describe_tools();
 
 ```rust
 let mut sandbox = Sandbox::new();
-let output = sandbox.execute_with_output(r#"
+let output = sandbox.capture(r#"
 for i in range(5):
     print(i)
 "done"
 "#).unwrap();
 
-assert_eq!(output.printed, vec!["0", "1", "2", "3", "4"]);
-assert_eq!(output.result, PyValue::Str("done".to_string()));
+assert_eq!(output.output, vec!["0", "1", "2", "3", "4"]);
+assert_eq!(output.value, PyValue::Str("done".to_string()));
 ```
 
 ### Python
@@ -180,10 +180,10 @@ sandbox = Sandbox()
 def fetch_data(args):
     return {"id": args[0], "name": "Example"}
 
-sandbox.register_function("fetch_data", fetch_data)
+sandbox.register("fetch_data", fetch_data)
 
 # Execute LLM-generated code
-result = sandbox.execute("""
+result = sandbox.run("""
 data = fetch_data(42)
 data["name"]
 """)
@@ -194,10 +194,10 @@ assert result == "Example"
 
 ```python
 sandbox = Sandbox()
-sandbox.set_limits(max_instructions=10_000, max_recursion_depth=50)
+sandbox.limit(max_instructions=10_000, max_recursion_depth=50)
 
 try:
-    sandbox.execute("while True: pass")
+    sandbox.run("while True: pass")
 except RuntimeError as e:
     print(e)  # "Instruction limit exceeded (limit: 10000)"
 ```
@@ -205,7 +205,7 @@ except RuntimeError as e:
 #### Capturing Print Output
 
 ```python
-result, printed = sandbox.execute_with_output("""
+result, printed = sandbox.capture("""
 for i in range(5):
     print(i)
 "done"
@@ -224,7 +224,7 @@ from littrs import WasmSandbox, WasmSandboxConfig
 config = WasmSandboxConfig().with_fuel(1_000_000).with_max_memory(32 * 1024 * 1024)
 sandbox = WasmSandbox(config)
 
-result = sandbox.execute("sum(range(100))")
+result = sandbox.run("sum(range(100))")
 assert result == 4950
 ```
 
@@ -302,7 +302,7 @@ Littrs uses a two-phase execution model:
 
 1. **Compiler** (AST &rarr; bytecode): Parses Python source into an AST using Ruff's `ruff_python_parser`, then compiles it into a compact bytecode representation (`CodeObject` with ~35 opcodes). Only the compiler depends on the parser crate.
 
-2. **VM** (bytecode &rarr; result): A stack-based virtual machine executes the bytecode. It maintains a value stack, call frames with locals, an exception stack, and global variables that persist across `execute()` calls.
+2. **VM** (bytecode &rarr; result): A stack-based virtual machine executes the bytecode. It maintains a value stack, call frames with locals, an exception stack, and global variables that persist across `run()` calls.
 
 This separation means parsing and compilation happen once, and the VM is a tight instruction dispatch loop. Exception handling uses a static exception table (same approach as CPython 3.11+) rather than runtime-generated exception frames.
 

@@ -32,4 +32,5 @@ Issues = "https://github.com/chonkie-inc/littrs/issues"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "littrs"
+module-name = "littrs.littrs"
+python-source = "python"
