@@ -1,4 +1,4 @@
-use littrs::{PyValue, Limits, Sandbox};
+use littrs::{Limits, PyValue, Sandbox};
 
 #[test]
 fn test_basic_arithmetic() {
@@ -54,9 +54,7 @@ fn test_lists() {
 fn test_dict() {
     let mut sandbox = Sandbox::new();
 
-    sandbox
-        .run("data = {'name': 'Alice', 'age': 30}")
-        .unwrap();
+    sandbox.run("data = {'name': 'Alice', 'age': 30}").unwrap();
     assert_eq!(
         sandbox.run("data['name']").unwrap(),
         PyValue::Str("Alice".to_string())
@@ -79,14 +77,8 @@ fn test_comparisons() {
 fn test_boolean_ops() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("True and False").unwrap(),
-        PyValue::Bool(false)
-    );
-    assert_eq!(
-        sandbox.run("True or False").unwrap(),
-        PyValue::Bool(true)
-    );
+    assert_eq!(sandbox.run("True and False").unwrap(), PyValue::Bool(false));
+    assert_eq!(sandbox.run("True or False").unwrap(), PyValue::Bool(true));
     assert_eq!(sandbox.run("not True").unwrap(), PyValue::Bool(false));
 }
 
@@ -179,10 +171,7 @@ fn test_builtin_range() {
 fn test_builtin_sum_min_max() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("sum([1, 2, 3, 4])").unwrap(),
-        PyValue::Int(10)
-    );
+    assert_eq!(sandbox.run("sum([1, 2, 3, 4])").unwrap(), PyValue::Int(10));
     assert_eq!(sandbox.run("min(5, 3, 8)").unwrap(), PyValue::Int(3));
     assert_eq!(sandbox.run("max(5, 3, 8)").unwrap(), PyValue::Int(8));
     assert_eq!(sandbox.run("min([5, 3, 8])").unwrap(), PyValue::Int(3));
@@ -246,28 +235,16 @@ fn test_set_variable() {
     let mut sandbox = Sandbox::new();
 
     sandbox.set("config_value", PyValue::Int(100));
-    assert_eq!(
-        sandbox.run("config_value * 2").unwrap(),
-        PyValue::Int(200)
-    );
+    assert_eq!(sandbox.run("config_value * 2").unwrap(), PyValue::Int(200));
 }
 
 #[test]
 fn test_in_operator() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("'a' in 'abc'").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("'x' in 'abc'").unwrap(),
-        PyValue::Bool(false)
-    );
-    assert_eq!(
-        sandbox.run("2 in [1, 2, 3]").unwrap(),
-        PyValue::Bool(true)
-    );
+    assert_eq!(sandbox.run("'a' in 'abc'").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("'x' in 'abc'").unwrap(), PyValue::Bool(false));
+    assert_eq!(sandbox.run("2 in [1, 2, 3]").unwrap(), PyValue::Bool(true));
     assert_eq!(
         sandbox.run("5 not in [1, 2, 3]").unwrap(),
         PyValue::Bool(true)
@@ -464,9 +441,7 @@ fn test_list_comprehension_with_filter() {
 
     // List comprehension with if filter
     assert_eq!(
-        sandbox
-            .run("[x for x in range(10) if x % 2 == 0]")
-            .unwrap(),
+        sandbox.run("[x for x in range(10) if x % 2 == 0]").unwrap(),
         PyValue::List(vec![
             PyValue::Int(0),
             PyValue::Int(2),
@@ -478,9 +453,7 @@ fn test_list_comprehension_with_filter() {
 
     // Filter with expression
     assert_eq!(
-        sandbox
-            .run("[x * 2 for x in range(5) if x > 1]")
-            .unwrap(),
+        sandbox.run("[x * 2 for x in range(5) if x > 1]").unwrap(),
         PyValue::List(vec![PyValue::Int(4), PyValue::Int(6), PyValue::Int(8),])
     );
 }
@@ -1613,14 +1586,8 @@ fn test_set_from_list() {
 fn test_set_membership() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("2 in {1, 2, 3}").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("5 in {1, 2, 3}").unwrap(),
-        PyValue::Bool(false)
-    );
+    assert_eq!(sandbox.run("2 in {1, 2, 3}").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("5 in {1, 2, 3}").unwrap(), PyValue::Bool(false));
     assert_eq!(
         sandbox.run("5 not in {1, 2, 3}").unwrap(),
         PyValue::Bool(true)
@@ -1757,9 +1724,7 @@ fn test_set_method_union_intersection() {
     }
 
     assert_eq!(
-        sandbox
-            .run("{1, 2, 3}.intersection({2, 3, 4})")
-            .unwrap(),
+        sandbox.run("{1, 2, 3}.intersection({2, 3, 4})").unwrap(),
         PyValue::Set(vec![PyValue::Int(2), PyValue::Int(3)])
     );
 
@@ -1818,14 +1783,8 @@ fn test_set_type_name() {
 fn test_set_truthiness() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("bool({1, 2})").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("bool(set())").unwrap(),
-        PyValue::Bool(false)
-    );
+    assert_eq!(sandbox.run("bool({1, 2})").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("bool(set())").unwrap(), PyValue::Bool(false));
 }
 
 #[test]
@@ -1941,14 +1900,8 @@ fn test_tuple_repetition() {
 fn test_tuple_membership() {
     let mut sandbox = Sandbox::new();
 
-    assert_eq!(
-        sandbox.run("2 in (1, 2, 3)").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("5 in (1, 2, 3)").unwrap(),
-        PyValue::Bool(false)
-    );
+    assert_eq!(sandbox.run("2 in (1, 2, 3)").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("5 in (1, 2, 3)").unwrap(), PyValue::Bool(false));
 }
 
 #[test]
@@ -2016,14 +1969,8 @@ fn test_tuple_comparison() {
         sandbox.run("(1, 2) == (1, 2)").unwrap(),
         PyValue::Bool(true)
     );
-    assert_eq!(
-        sandbox.run("(1, 2) < (1, 3)").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("(1, 2) > (1, 1)").unwrap(),
-        PyValue::Bool(true)
-    );
+    assert_eq!(sandbox.run("(1, 2) < (1, 3)").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("(1, 2) > (1, 1)").unwrap(), PyValue::Bool(true));
 }
 
 #[test]
@@ -2225,22 +2172,10 @@ fn test_tuple_edge_cases() {
     assert_eq!(sandbox.run("sum((1, 2, 3))").unwrap(), PyValue::Int(6));
 
     // 10. any()/all() on tuple
-    assert_eq!(
-        sandbox.run("any((0, 0, 1))").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("any((0, 0, 0))").unwrap(),
-        PyValue::Bool(false)
-    );
-    assert_eq!(
-        sandbox.run("all((1, 2, 3))").unwrap(),
-        PyValue::Bool(true)
-    );
-    assert_eq!(
-        sandbox.run("all((1, 0, 3))").unwrap(),
-        PyValue::Bool(false)
-    );
+    assert_eq!(sandbox.run("any((0, 0, 1))").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("any((0, 0, 0))").unwrap(), PyValue::Bool(false));
+    assert_eq!(sandbox.run("all((1, 2, 3))").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.run("all((1, 0, 3))").unwrap(), PyValue::Bool(false));
 
     // 11. reversed() on tuple → list
     assert_eq!(
@@ -2304,10 +2239,7 @@ fn test_set_edge_cases() {
     // 6. any()/all() on set
     assert_eq!(sandbox.run("any({0, 1})").unwrap(), PyValue::Bool(true));
     assert_eq!(sandbox.run("any({0})").unwrap(), PyValue::Bool(false));
-    assert_eq!(
-        sandbox.run("all({1, 2, 3})").unwrap(),
-        PyValue::Bool(true)
-    );
+    assert_eq!(sandbox.run("all({1, 2, 3})").unwrap(), PyValue::Bool(true));
 
     // 7. Set .pop() — removes an arbitrary element; just check it doesn't error
     //    and that the set shrinks by 1
@@ -2407,18 +2339,12 @@ fn test_dict_key_edge_cases() {
     sandbox.run("d = {1: 'a'}").unwrap();
     sandbox.run("d.update({2: 'b', 3: 'c'})").unwrap();
     assert_eq!(sandbox.run("len(d)").unwrap(), PyValue::Int(3));
-    assert_eq!(
-        sandbox.run("d[2]").unwrap(),
-        PyValue::Str("b".to_string())
-    );
+    assert_eq!(sandbox.run("d[2]").unwrap(), PyValue::Str("b".to_string()));
 
     // 6. Overwriting with same key: d = {1: 'a'}; d[1] = 'b'
     sandbox.run("d = {1: 'a'}").unwrap();
     sandbox.run("d[1] = 'b'").unwrap();
-    assert_eq!(
-        sandbox.run("d[1]").unwrap(),
-        PyValue::Str("b".to_string())
-    );
+    assert_eq!(sandbox.run("d[1]").unwrap(), PyValue::Str("b".to_string()));
     assert_eq!(sandbox.run("len(d)").unwrap(), PyValue::Int(1));
 
     // 7. len() on dict with non-string keys
@@ -2499,9 +2425,7 @@ fn test_first_class_function_as_argument() {
     let mut sandbox = Sandbox::new();
 
     // Pass function as argument to another function
-    sandbox
-        .run("def apply(f, x):\n    return f(x)")
-        .unwrap();
+    sandbox.run("def apply(f, x):\n    return f(x)").unwrap();
     assert_eq!(
         sandbox.run("apply(lambda x: x * x, 5)").unwrap(),
         PyValue::Int(25)

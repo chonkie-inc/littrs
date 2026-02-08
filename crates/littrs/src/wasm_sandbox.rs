@@ -298,11 +298,7 @@ impl WasmSandbox {
     }
 
     /// Set a variable in the sandbox.
-    pub fn set(
-        &mut self,
-        name: impl Into<String>,
-        value: impl Into<PyValue>,
-    ) -> Result<()> {
+    pub fn set(&mut self, name: impl Into<String>, value: impl Into<PyValue>) -> Result<()> {
         let name = name.into();
         let value = value.into();
 

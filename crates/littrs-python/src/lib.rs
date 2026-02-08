@@ -153,11 +153,7 @@ impl Sandbox {
     ///
     /// Returns:
     ///     A tuple of (result, list of printed lines).
-    fn capture(
-        &mut self,
-        py: Python<'_>,
-        code: &str,
-    ) -> PyResult<(PyObject, Vec<String>)> {
+    fn capture(&mut self, py: Python<'_>, code: &str) -> PyResult<(PyObject, Vec<String>)> {
         match self.inner.capture(code) {
             Ok(output) => Ok((pyvalue_to_py(py, &output.value), output.output)),
             Err(e) => Err(PyRuntimeError::new_err(format!("{}", e))),

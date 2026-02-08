@@ -88,10 +88,7 @@ fn test_set_variable() {
     let mut sandbox = WasmSandbox::new().unwrap();
 
     sandbox.set("config_value", 100i64).unwrap();
-    assert_eq!(
-        sandbox.run("config_value * 2").unwrap(),
-        PyValue::Int(200)
-    );
+    assert_eq!(sandbox.run("config_value * 2").unwrap(), PyValue::Int(200));
 }
 
 #[test]
