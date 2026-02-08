@@ -4,7 +4,7 @@
 
 # Littrs
 
-### A lightweight, embeddable Python sandbox for LLM tool execution.
+### Keep your LLM's 💩 code where it belongs — in a sandbox.
 
 [![Crates.io](https://img.shields.io/crates/v/littrs.svg)](https://crates.io/crates/littrs)
 [![PyPI version](https://img.shields.io/pypi/v/littrs.svg)](https://pypi.org/project/littrs/)
