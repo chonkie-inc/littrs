@@ -1166,7 +1166,7 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "littrs"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "littrs-macros",
  "littrs-ruff-python-ast",
@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-macros"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1191,7 +1191,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-python"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "littrs",
  "pyo3",
@@ -1199,7 +1199,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-ruff-python-ast"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "aho-corasick",
  "bitflags",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-ruff-python-parser"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "bitflags",
  "bstr",
@@ -1238,7 +1238,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-ruff-python-trivia"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "itertools",
  "littrs-ruff-source-file",
@@ -1248,7 +1248,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-ruff-source-file"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "get-size2",
  "littrs-ruff-text-size",
@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-ruff-text-size"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "get-size2",
  "schemars",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "littrs-wasm"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "littrs",
  "serde",

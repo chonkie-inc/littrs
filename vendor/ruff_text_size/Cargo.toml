@@ -1,6 +1,6 @@
 [package]
 name = "littrs-ruff-text-size"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 license = "MIT"
 description = "Vendored ruff_text_size for littrs (from github.com/astral-sh/ruff)"

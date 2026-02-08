@@ -21,21 +21,21 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/chonkie-inc/littrs"
 
 [workspace.dependencies]
 # Internal crates
-littrs = { version = "0.5.2", path = "crates/littrs" }
-littrs-macros = { version = "0.5.2", path = "crates/littrs-macros" }
-littrs-wasm = { version = "0.5.2", path = "crates/littrs-wasm" }
+littrs = { version = "0.5.3", path = "crates/littrs" }
+littrs-macros = { version = "0.5.3", path = "crates/littrs-macros" }
+littrs-wasm = { version = "0.5.3", path = "crates/littrs-wasm" }
 
 # Vendored ruff crates (from github.com/astral-sh/ruff, commit 56eb6b62)
-ruff_python_parser = { version = "0.5.2", path = "vendor/ruff_python_parser", package = "littrs-ruff-python-parser" }
-ruff_python_ast = { version = "0.5.2", path = "vendor/ruff_python_ast", package = "littrs-ruff-python-ast" }
-ruff_text_size = { version = "0.5.2", path = "vendor/ruff_text_size", package = "littrs-ruff-text-size" }
+ruff_python_parser = { version = "0.5.3", path = "vendor/ruff_python_parser", package = "littrs-ruff-python-parser" }
+ruff_python_ast = { version = "0.5.3", path = "vendor/ruff_python_ast", package = "littrs-ruff-python-ast" }
+ruff_text_size = { version = "0.5.3", path = "vendor/ruff_text_size", package = "littrs-ruff-text-size" }
 thiserror = "2"
 wasmtime = "40"
 wasmtime-wasi = "40"
