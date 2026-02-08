@@ -30,7 +30,7 @@ For motivation on why you might want to do this, see:
 
 ## What Littrs can do
 
-* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
+* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), lambdas, list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
 * **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
 * **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Rust or Python
 * **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
@@ -45,6 +45,7 @@ For motivation on why you might want to do this, see:
 * Use third-party libraries — no `pip install`, no `numpy`, no `requests`
 * Define classes — `class` definitions are not supported
 * Use async/await — no coroutines, no `asyncio`
+* Use closures (functions cannot capture variables from enclosing scopes)
 * Use `finally` blocks — only `try`/`except`/`else`
 * Use `match` statements
 * Snapshot/resume execution state — execution runs to completion in a single call
@@ -70,7 +71,7 @@ Littrs can be called from Rust or Python.
 
 ### Rust
 
-The core API is the `Sandbox`. Create one, optionally register tools, and call `run()`:
+The core API is the `Sandbox`. Create one, optionally register tools, and call `run()`. See the [ROADMAP](ROADMAP.md) for planned features.
 
 ```rust
 use littrs::{Sandbox, PyValue};
@@ -81,8 +82,8 @@ let mut sandbox = Sandbox::new();
 sandbox.register_fn("fetch_data", |args| {
     let id = args[0].as_int().unwrap_or(0);
     PyValue::Dict(vec![
-        ("id".to_string(), PyValue::Int(id)),
-        ("name".to_string(), PyValue::Str("Example".to_string())),
+        (PyValue::Str("id".to_string()), PyValue::Int(id)),
+        (PyValue::Str("name".to_string()), PyValue::Str("Example".to_string())),
     ])
 });
 
@@ -141,8 +142,8 @@ sandbox.register_tool(
     |args| {
         let city = args[0].as_str().unwrap_or("Unknown");
         PyValue::Dict(vec![
-            ("city".to_string(), PyValue::Str(city.to_string())),
-            ("temp".to_string(), PyValue::Int(22)),
+            (PyValue::Str("city".to_string()), PyValue::Str(city.to_string())),
+            (PyValue::Str("temp".to_string()), PyValue::Int(22)),
         ])
     },
 );
@@ -234,7 +235,7 @@ Littrs implements enough Python for an LLM to express what it wants to do: call 
 
 ### Types
 
-`None`, `bool`, `int`, `float`, `str`, `list`, `dict` (string keys)
+`None`, `bool`, `int`, `float`, `str`, `list`, `tuple`, `dict`, `set`
 
 ### Operators
 
@@ -257,6 +258,7 @@ Littrs implements enough Python for an LLM to express what it wants to do: call 
 ### Functions
 
 - `def` with positional parameters, default values, `*args`, `**kwargs`
+- `lambda` expressions: `lambda x, y: x + y`
 - Keyword arguments at call sites: `f(x=1, y=2)`
 - Recursive and nested function definitions
 - Implicit `return None` for functions without a return statement
@@ -277,11 +279,11 @@ f"hello {name}!"  # "hello world!"
 
 ### String Methods
 
-`.upper()`, `.lower()`, `.strip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.format()`
+`.upper()`, `.lower()`, `.strip()`, `.lstrip()`, `.rstrip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.title()`, `.capitalize()`, `.isdigit()`, `.isalpha()`, `.isalnum()`
 
-### List/Dict Methods
+### List/Dict/Set Methods
 
-`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`
+`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`
 
 ### Slicing
 
