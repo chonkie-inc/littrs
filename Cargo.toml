@@ -16,16 +16,16 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.5.2"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/chonkie-inc/littrs"
 
 [workspace.dependencies]
 # Internal crates
-littrs = { version = "0.5.1", path = "crates/littrs" }
-littrs-macros = { version = "0.5.1", path = "crates/littrs-macros" }
-littrs-wasm = { version = "0.5.1", path = "crates/littrs-wasm" }
+littrs = { version = "0.5.2", path = "crates/littrs" }
+littrs-macros = { version = "0.5.2", path = "crates/littrs-macros" }
+littrs-wasm = { version = "0.5.2", path = "crates/littrs-wasm" }
 
 # External dependencies
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
