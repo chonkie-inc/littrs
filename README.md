@@ -56,7 +56,7 @@ For motivation on why you might want to do this, see:
 
 ```toml
 [dependencies]
-littrs = "0.4"
+littrs = "0.5"
 ```
 
 ### Python
