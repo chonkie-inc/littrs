@@ -34,15 +34,14 @@ Littrs does not support `import`, third-party packages, classes, closures, `asyn
 
 ### Rust
 
-```toml
-[dependencies]
-littrs = "0.5"
+```bash
+cargo add littrs
 ```
 
 ### Python
 
 ```bash
-pip install littrs
+uv pip install littrs
 ```
 
 ## Usage
