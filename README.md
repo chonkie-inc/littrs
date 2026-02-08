@@ -16,19 +16,18 @@
 
 ---
 
-Littrs is a Python sandbox that you embed directly into your Rust or Python application. There's no container to start, no runtime to boot, no network call to make — just a library that executes LLM-generated Python safely, with only the tools you give it.
+LLMs are better at writing Python than crafting JSON tool calls. But running LLM-generated code means either spinning up containers, paying for sandboxing services, or gambling with `exec()`. Littrs takes a different approach: a Python sandbox that embeds directly into your Rust or Python application as a library. No containers, no network calls, no infrastructure — just `pip install` or `cargo add` and go.
 
-It was built for a specific workflow: an LLM writes Python code that calls your functions, and you need to run that code without giving it access to anything else. Littrs compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities. The only way sandboxed code can interact with the outside world is through tools you explicitly register.
+You register functions as tools, hand the sandbox some LLM-generated code, and get back a result. The sandbox compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities — no filesystem, no network, no env vars, no `import`. The only way sandboxed code can reach the outside world is through tools you explicitly provide.
 
-* **Stateful sandbox with tool registration** — register Python or Rust functions as tools via `@sandbox.tool` / `#[tool]`, inject variables, and run multiple code snippets against the same state
-* **Zero ambient capabilities** — no filesystem, no network, no env vars, no `import`. Sandboxed code can only call tools you register
-* **Resource limits** — cap bytecode instructions and recursion depth per `run()` call. Limits are enforced at the VM level and cannot be caught by `try`/`except`
-* **Stdout capture** — `print()` output is collected and returned separately from the result
-* **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings from registered tools, ready to paste into a system prompt
-* **Rust and Python APIs** — native Rust with PyO3 bindings. Optional WASM isolation via an embedded wasmtime guest module
-* **Fast startup** — no interpreter boot. Create a sandbox, register tools, run code
+* **Tool registration** — `@sandbox.tool` in Python, `#[tool]` in Rust. Inject variables with `sandbox["x"] = val`, run code with `sandbox(code)`
+* **Resource limits** — cap bytecode instructions and recursion depth per call, enforced at the VM level and uncatchable by `try`/`except`
+* **Stdout capture** — `print()` output collected and returned separately from the result
+* **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings, ready to paste into a system prompt
+* **WASM isolation** — optional stronger sandboxing via an embedded wasmtime guest module with memory and fuel limits
+* **Fast startup** — no interpreter boot, no runtime to load. Create a sandbox, register tools, run code
 
-Littrs does not support `import`, third-party packages, classes, closures, `async`/`await`, `finally`, or `match` — see the [ROADMAP](ROADMAP.md) for what's planned and the full list of [supported Python features](FEATURES.md).
+Littrs implements enough Python for an LLM to call tools, process results, handle errors, and return values. It does not support `import`, third-party packages, classes, closures, `async`/`await`, `finally`, or `match` — see the [ROADMAP](ROADMAP.md) for what's planned and the full list of [supported features](FEATURES.md).
 
 ## Installation
 
