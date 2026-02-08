@@ -157,7 +157,7 @@ pub extern "C" fn set_variable(
 
     SANDBOX.with(|s| {
         if let Some(ref mut sandbox) = *s.borrow_mut() {
-            sandbox.set_variable(name, value);
+            sandbox.set(name, value);
         }
     });
 }
@@ -178,7 +178,7 @@ pub extern "C" fn execute(code_ptr: *const u8, code_len: usize) -> *const u8 {
     let result = SANDBOX.with(|s| {
         let mut borrowed = s.borrow_mut();
         let sandbox = borrowed.as_mut().expect("Sandbox not initialized");
-        sandbox.execute(code)
+        sandbox.run(code)
     });
 
     let execute_result = match result {
