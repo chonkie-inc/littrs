@@ -146,10 +146,17 @@ pub enum Op {
     /// index 0 of the list.
     BuildList(u32),
 
+    /// Pop N items from the stack, build a `Tuple`, push it.
+    BuildTuple(u32),
+
     /// Pop 2*N items from the stack (alternating key, value), build a `Dict`.
     ///
-    /// Keys must be strings. The pairs are ordered as pushed.
+    /// Keys must be hashable. The pairs are ordered as pushed.
     BuildDict(u32),
+
+    /// Pop N items from the stack, build a `Set`, push it.
+    /// Duplicate elements are removed. Elements must be hashable.
+    BuildSet(u32),
 
     // --- Subscript ---
     /// Pop index and collection, push `collection[index]`.

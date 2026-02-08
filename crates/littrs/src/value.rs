@@ -61,7 +61,9 @@ pub enum PyValue {
     Float(f64),
     Str(String),
     List(Vec<PyValue>),
-    Dict(Vec<(String, PyValue)>),
+    Tuple(Vec<PyValue>),
+    Dict(Vec<(PyValue, PyValue)>),
+    Set(Vec<PyValue>),
 }
 
 impl PyValue {
@@ -73,7 +75,9 @@ impl PyValue {
             PyValue::Float(_) => "float",
             PyValue::Str(_) => "str",
             PyValue::List(_) => "list",
+            PyValue::Tuple(_) => "tuple",
             PyValue::Dict(_) => "dict",
+            PyValue::Set(_) => "set",
         }
     }
 
@@ -85,7 +89,22 @@ impl PyValue {
             PyValue::Float(f) => *f != 0.0,
             PyValue::Str(s) => !s.is_empty(),
             PyValue::List(l) => !l.is_empty(),
+            PyValue::Tuple(t) => !t.is_empty(),
             PyValue::Dict(d) => !d.is_empty(),
+            PyValue::Set(s) => !s.is_empty(),
+        }
+    }
+
+    /// Check if this value can be used as a dict key or set element.
+    pub fn is_hashable(&self) -> bool {
+        match self {
+            PyValue::None
+            | PyValue::Bool(_)
+            | PyValue::Int(_)
+            | PyValue::Float(_)
+            | PyValue::Str(_) => true,
+            PyValue::Tuple(items) => items.iter().all(|v| v.is_hashable()),
+            PyValue::List(_) | PyValue::Dict(_) | PyValue::Set(_) => false,
         }
     }
 
@@ -140,12 +159,26 @@ impl PyValue {
                 let inner: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
                 format!("[{}]", inner.join(", "))
             }
+            PyValue::Tuple(items) => {
+                let inner: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
+                match items.len() {
+                    0 => "()".to_string(),
+                    1 => format!("({},)", inner[0]),
+                    _ => format!("({})", inner.join(", ")),
+                }
+            }
             PyValue::Dict(pairs) => {
-                let inner: Vec<String> = pairs
-                    .iter()
-                    .map(|(k, v)| format!("'{}': {}", k, v))
-                    .collect();
+                let inner: Vec<String> =
+                    pairs.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 format!("{{{}}}", inner.join(", "))
+            }
+            PyValue::Set(items) => {
+                if items.is_empty() {
+                    "set()".to_string()
+                } else {
+                    let inner: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
+                    format!("{{{}}}", inner.join(", "))
+                }
             }
         }
     }
@@ -175,15 +208,42 @@ impl fmt::Display for PyValue {
                 }
                 write!(f, "]")
             }
+            PyValue::Tuple(items) => {
+                write!(f, "(")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", item)?;
+                }
+                if items.len() == 1 {
+                    write!(f, ",")?;
+                }
+                write!(f, ")")
+            }
             PyValue::Dict(pairs) => {
                 write!(f, "{{")?;
                 for (i, (key, value)) in pairs.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "'{}': {}", key, value)?;
+                    write!(f, "{}: {}", key, value)?;
                 }
                 write!(f, "}}")
+            }
+            PyValue::Set(items) => {
+                if items.is_empty() {
+                    write!(f, "set()")
+                } else {
+                    write!(f, "{{")?;
+                    for (i, item) in items.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", item)?;
+                    }
+                    write!(f, "}}")
+                }
             }
         }
     }
@@ -348,7 +408,9 @@ impl<T: FromPyValue> FromPyValue for Option<T> {
 impl<T: FromPyValue> FromPyValue for Vec<T> {
     fn from_py_value(value: &PyValue) -> Result<Self, TypeError> {
         match value {
-            PyValue::List(items) => items.iter().map(T::from_py_value).collect(),
+            PyValue::List(items) | PyValue::Tuple(items) => {
+                items.iter().map(T::from_py_value).collect()
+            }
             other => Err(TypeError::new(Self::expected_type(), other.type_name())),
         }
     }
@@ -364,7 +426,11 @@ impl<V: FromPyValue> FromPyValue for HashMap<String, V> {
             PyValue::Dict(pairs) => {
                 let mut map = HashMap::new();
                 for (k, v) in pairs {
-                    map.insert(k.clone(), V::from_py_value(v)?);
+                    let key = match k {
+                        PyValue::Str(s) => s.clone(),
+                        _ => return Err(TypeError::new("str (dict key)", k.type_name())),
+                    };
+                    map.insert(key, V::from_py_value(v)?);
                 }
                 Ok(map)
             }
@@ -475,8 +541,8 @@ mod tests {
     #[test]
     fn test_hashmap_from_py_value() {
         let dict = PyValue::Dict(vec![
-            ("a".to_string(), PyValue::Int(1)),
-            ("b".to_string(), PyValue::Int(2)),
+            (PyValue::Str("a".to_string()), PyValue::Int(1)),
+            (PyValue::Str("b".to_string()), PyValue::Int(2)),
         ]);
         let map: HashMap<String, i64> = HashMap::from_py_value(&dict).unwrap();
         assert_eq!(map.get("a"), Some(&1));

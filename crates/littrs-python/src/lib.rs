@@ -10,7 +10,7 @@ use ::littrs::{
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyRuntimeError, PyTypeError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::types::{PyBool, PyDict, PyFloat, PyFrozenSet, PyInt, PyList, PySet, PyString, PyTuple};
 
 // ============================================================================
 // PyValue conversion
@@ -28,12 +28,21 @@ fn pyvalue_to_py(py: Python<'_>, value: &PyValue) -> PyObject {
             let list: Vec<PyObject> = items.iter().map(|v| pyvalue_to_py(py, v)).collect();
             list.into_py_any(py).unwrap()
         }
+        PyValue::Tuple(items) => {
+            let elements: Vec<PyObject> = items.iter().map(|v| pyvalue_to_py(py, v)).collect();
+            PyTuple::new(py, &elements).unwrap().into_any().unbind()
+        }
         PyValue::Dict(pairs) => {
             let dict = PyDict::new(py);
             for (k, v) in pairs {
-                dict.set_item(k, pyvalue_to_py(py, v)).unwrap();
+                dict.set_item(pyvalue_to_py(py, k), pyvalue_to_py(py, v))
+                    .unwrap();
             }
             dict.into_any().unbind()
+        }
+        PyValue::Set(items) => {
+            let elements: Vec<PyObject> = items.iter().map(|v| pyvalue_to_py(py, v)).collect();
+            PySet::new(py, &elements).unwrap().into_any().unbind()
         }
     }
 }
@@ -53,13 +62,21 @@ fn py_to_pyvalue(obj: &Bound<'_, PyAny>) -> PyResult<PyValue> {
     } else if let Ok(list) = obj.downcast::<PyList>() {
         let items: PyResult<Vec<_>> = list.iter().map(|item| py_to_pyvalue(&item)).collect();
         Ok(PyValue::List(items?))
+    } else if let Ok(tuple) = obj.downcast::<PyTuple>() {
+        let items: PyResult<Vec<_>> = tuple.iter().map(|item| py_to_pyvalue(&item)).collect();
+        Ok(PyValue::Tuple(items?))
     } else if let Ok(dict) = obj.downcast::<PyDict>() {
         let mut pairs = Vec::new();
         for (k, v) in dict.iter() {
-            let key: String = k.extract()?;
-            pairs.push((key, py_to_pyvalue(&v)?));
+            pairs.push((py_to_pyvalue(&k)?, py_to_pyvalue(&v)?));
         }
         Ok(PyValue::Dict(pairs))
+    } else if let Ok(set) = obj.downcast::<PySet>() {
+        let items: PyResult<Vec<_>> = set.iter().map(|item| py_to_pyvalue(&item)).collect();
+        Ok(PyValue::Set(items?))
+    } else if let Ok(fset) = obj.downcast::<PyFrozenSet>() {
+        let items: PyResult<Vec<_>> = fset.iter().map(|item| py_to_pyvalue(&item)).collect();
+        Ok(PyValue::Set(items?))
     } else {
         Err(PyTypeError::new_err(format!(
             "Cannot convert {} to sandbox value",
@@ -185,7 +202,10 @@ impl Sandbox {
                     }
                     Err(e) => {
                         // Return error as a dict
-                        PyValue::Dict(vec![("error".to_string(), PyValue::Str(format!("{}", e)))])
+                        PyValue::Dict(vec![(
+                            PyValue::Str("error".to_string()),
+                            PyValue::Str(format!("{}", e)),
+                        )])
                     }
                 }
             })
@@ -348,7 +368,7 @@ impl WasmSandbox {
                     match func.call1(py, (py_args,)) {
                         Ok(result) => py_to_pyvalue(result.bind(py)).unwrap_or(PyValue::None),
                         Err(e) => PyValue::Dict(vec![(
-                            "error".to_string(),
+                            PyValue::Str("error".to_string()),
                             PyValue::Str(format!("{}", e)),
                         )]),
                     }

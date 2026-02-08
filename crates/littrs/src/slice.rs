@@ -72,6 +72,23 @@ pub fn slice_list(
     }
 }
 
+/// Slice a tuple with Python semantics.
+///
+/// Same logic as `slice_list` but wraps result in `PyValue::Tuple`.
+pub fn slice_tuple(
+    items: &[PyValue],
+    lower: Option<i64>,
+    upper: Option<i64>,
+    step: Option<i64>,
+) -> Result<PyValue> {
+    // Reuse slice_list logic, then convert List → Tuple
+    let result = slice_list(items, lower, upper, step)?;
+    match result {
+        PyValue::List(items) => Ok(PyValue::Tuple(items)),
+        other => Ok(other),
+    }
+}
+
 /// Slice a string with Python semantics.
 ///
 /// Handles proper Unicode character boundaries.

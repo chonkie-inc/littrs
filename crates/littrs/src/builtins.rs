@@ -10,6 +10,19 @@ use crate::error::{Error, Result};
 use crate::operators::compare_values;
 use crate::value::PyValue;
 
+/// Extract items from any iterable PyValue (list, tuple, set, dict keys, str chars).
+fn to_iterable_items(val: &PyValue) -> Result<Vec<PyValue>> {
+    match val {
+        PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => Ok(items.clone()),
+        PyValue::Dict(pairs) => Ok(pairs.iter().map(|(k, _)| k.clone()).collect()),
+        PyValue::Str(s) => Ok(s.chars().map(|c| PyValue::Str(c.to_string())).collect()),
+        other => Err(Error::Type {
+            expected: "iterable".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
 /// Result of attempting to handle a builtin function call.
 pub enum BuiltinResult {
     /// The function was handled and returned this value.
@@ -45,6 +58,8 @@ pub fn try_builtin(
         "sum" => BuiltinResult::Handled(builtin_sum(args)),
         "isinstance" => BuiltinResult::Handled(builtin_isinstance(args)),
         "type" => BuiltinResult::Handled(builtin_type(args)),
+        "tuple" => BuiltinResult::Handled(builtin_tuple(args)),
+        "set" => BuiltinResult::Handled(builtin_set(args)),
         _ => BuiltinResult::NotBuiltin,
     }
 }
@@ -57,7 +72,9 @@ fn builtin_len(args: Vec<PyValue>) -> Result<PyValue> {
     let len = match arg {
         PyValue::Str(s) => s.len(),
         PyValue::List(l) => l.len(),
+        PyValue::Tuple(t) => t.len(),
         PyValue::Dict(d) => d.len(),
+        PyValue::Set(s) => s.len(),
         _ => {
             return Err(Error::Type {
                 expected: "sized".to_string(),
@@ -151,17 +168,7 @@ fn builtin_list(args: Vec<PyValue>) -> Result<PyValue> {
             "list() takes at most 1 argument".to_string(),
         ));
     }
-    let arg = &args[0];
-    let items = match arg {
-        PyValue::List(l) => l.clone(),
-        PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: arg.type_name().to_string(),
-            });
-        }
-    };
+    let items = to_iterable_items(&args[0])?;
     Ok(PyValue::List(items))
 }
 
@@ -251,12 +258,12 @@ fn builtin_min(args: Vec<PyValue>) -> Result<PyValue> {
     }
 
     if args.len() == 1
-        && let PyValue::List(items) = &args[0]
+        && let Ok(items) = to_iterable_items(&args[0])
     {
         if items.is_empty() {
             return Err(Error::Runtime("min() arg is an empty sequence".to_string()));
         }
-        return find_min(items);
+        return find_min(&items);
     }
     find_min(&args)
 }
@@ -269,12 +276,12 @@ fn builtin_max(args: Vec<PyValue>) -> Result<PyValue> {
     }
 
     if args.len() == 1
-        && let PyValue::List(items) = &args[0]
+        && let Ok(items) = to_iterable_items(&args[0])
     {
         if items.is_empty() {
             return Err(Error::Runtime("max() arg is an empty sequence".to_string()));
         }
-        return find_max(items);
+        return find_max(&items);
     }
     find_max(&args)
 }
@@ -285,21 +292,13 @@ fn builtin_sum(args: Vec<PyValue>) -> Result<PyValue> {
             "sum() requires at least 1 argument".to_string(),
         ));
     }
-    let items = match &args[0] {
-        PyValue::List(items) => items,
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
+    let items = to_iterable_items(&args[0])?;
 
     let mut total = 0i64;
     let mut is_float = false;
     let mut total_float = 0.0f64;
 
-    for item in items {
+    for item in &items {
         match item {
             PyValue::Int(i) => {
                 if is_float {
@@ -358,16 +357,7 @@ fn builtin_enumerate(args: Vec<PyValue>) -> Result<PyValue> {
         ));
     }
 
-    let items = match &args[0] {
-        PyValue::List(items) => items.clone(),
-        PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
+    let items = to_iterable_items(&args[0])?;
 
     let start = if args.len() > 1 {
         args[1].as_int().ok_or_else(|| Error::Type {
@@ -381,7 +371,7 @@ fn builtin_enumerate(args: Vec<PyValue>) -> Result<PyValue> {
     let result: Vec<PyValue> = items
         .into_iter()
         .enumerate()
-        .map(|(i, v)| PyValue::List(vec![PyValue::Int(start + i as i64), v]))
+        .map(|(i, v)| PyValue::Tuple(vec![PyValue::Int(start + i as i64), v]))
         .collect();
 
     Ok(PyValue::List(result))
@@ -393,17 +383,7 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
     }
 
     // Convert all arguments to lists
-    let lists: Result<Vec<Vec<PyValue>>> = args
-        .iter()
-        .map(|arg| match arg {
-            PyValue::List(items) => Ok(items.clone()),
-            PyValue::Str(s) => Ok(s.chars().map(|c| PyValue::Str(c.to_string())).collect()),
-            _ => Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: arg.type_name().to_string(),
-            }),
-        })
-        .collect();
+    let lists: Result<Vec<Vec<PyValue>>> = args.iter().map(to_iterable_items).collect();
     let lists = lists?;
 
     // Find the shortest length
@@ -411,7 +391,7 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
 
     // Zip them together
     let result: Vec<PyValue> = (0..min_len)
-        .map(|i| PyValue::List(lists.iter().map(|l| l[i].clone()).collect()))
+        .map(|i| PyValue::Tuple(lists.iter().map(|l| l[i].clone()).collect()))
         .collect();
 
     Ok(PyValue::List(result))
@@ -424,16 +404,7 @@ fn builtin_sorted(args: Vec<PyValue>) -> Result<PyValue> {
         ));
     }
 
-    let mut items = match &args[0] {
-        PyValue::List(items) => items.clone(),
-        PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
+    let mut items = to_iterable_items(&args[0])?;
 
     // Sort using comparison - only works for homogeneous lists
     items.sort_by(|a, b| {
@@ -457,21 +428,8 @@ fn builtin_reversed(args: Vec<PyValue>) -> Result<PyValue> {
         ));
     }
 
-    let items = match &args[0] {
-        PyValue::List(items) => items.iter().rev().cloned().collect(),
-        PyValue::Str(s) => s
-            .chars()
-            .rev()
-            .map(|c| PyValue::Str(c.to_string()))
-            .collect(),
-        _ => {
-            return Err(Error::Type {
-                expected: "sequence".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
-
+    let mut items = to_iterable_items(&args[0])?;
+    items.reverse();
     Ok(PyValue::List(items))
 }
 
@@ -480,16 +438,7 @@ fn builtin_any(args: Vec<PyValue>) -> Result<PyValue> {
         return Err(Error::Runtime("any() takes exactly 1 argument".to_string()));
     }
 
-    let items = match &args[0] {
-        PyValue::List(items) => items,
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
-
+    let items = to_iterable_items(&args[0])?;
     Ok(PyValue::Bool(items.iter().any(|v| v.is_truthy())))
 }
 
@@ -498,16 +447,7 @@ fn builtin_all(args: Vec<PyValue>) -> Result<PyValue> {
         return Err(Error::Runtime("all() takes exactly 1 argument".to_string()));
     }
 
-    let items = match &args[0] {
-        PyValue::List(items) => items,
-        _ => {
-            return Err(Error::Type {
-                expected: "iterable".to_string(),
-                got: args[0].type_name().to_string(),
-            });
-        }
-    };
-
+    let items = to_iterable_items(&args[0])?;
     Ok(PyValue::Bool(items.iter().all(|v| v.is_truthy())))
 }
 
@@ -530,7 +470,9 @@ fn builtin_isinstance(args: Vec<PyValue>) -> Result<PyValue> {
             | ("float", PyValue::Float(_) | PyValue::Int(_))
             | ("bool", PyValue::Bool(_))
             | ("list", PyValue::List(_))
+            | ("tuple", PyValue::Tuple(_))
             | ("dict", PyValue::Dict(_))
+            | ("set", PyValue::Set(_))
             | ("None" | "NoneType", PyValue::None)
     );
 
@@ -545,4 +487,41 @@ fn builtin_type(args: Vec<PyValue>) -> Result<PyValue> {
     }
 
     Ok(PyValue::Str(args[0].type_name().to_string()))
+}
+
+fn builtin_tuple(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.is_empty() {
+        return Ok(PyValue::Tuple(vec![]));
+    }
+    if args.len() != 1 {
+        return Err(Error::Runtime(
+            "tuple() takes at most 1 argument".to_string(),
+        ));
+    }
+    let items = to_iterable_items(&args[0])?;
+    Ok(PyValue::Tuple(items))
+}
+
+fn builtin_set(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.is_empty() {
+        return Ok(PyValue::Set(vec![]));
+    }
+    if args.len() != 1 {
+        return Err(Error::Runtime("set() takes at most 1 argument".to_string()));
+    }
+    let raw_items = to_iterable_items(&args[0])?;
+    // Deduplicate and check hashability
+    let mut items = Vec::new();
+    for elem in raw_items {
+        if !elem.is_hashable() {
+            return Err(Error::Runtime(format!(
+                "TypeError: unhashable type: '{}'",
+                elem.type_name()
+            )));
+        }
+        if !items.contains(&elem) {
+            items.push(elem);
+        }
+    }
+    Ok(PyValue::Set(items))
 }

@@ -206,6 +206,38 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
     }
 }
 
+/// Call a method on a tuple value (non-mutating).
+pub fn call_tuple_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+    match method {
+        "index" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "index() takes exactly 1 argument".to_string(),
+                ));
+            }
+            for (i, item) in items.iter().enumerate() {
+                if item == &args[0] {
+                    return Ok(PyValue::Int(i as i64));
+                }
+            }
+            Err(Error::Runtime("value not in tuple".to_string()))
+        }
+        "count" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "count() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let count = items.iter().filter(|&item| item == &args[0]).count();
+            Ok(PyValue::Int(count as i64))
+        }
+        _ => Err(Error::Unsupported(format!(
+            "Tuple method '{}' not implemented",
+            method
+        ))),
+    }
+}
+
 /// Call a method on a list value (non-mutating).
 pub fn call_list_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> Result<PyValue> {
     match method {
@@ -246,7 +278,7 @@ pub fn call_list_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> 
 
 /// Call a method on a dict value (non-mutating).
 pub fn call_dict_method(
-    pairs: &[(String, PyValue)],
+    pairs: &[(PyValue, PyValue)],
     method: &str,
     args: Vec<PyValue>,
 ) -> Result<PyValue> {
@@ -255,10 +287,7 @@ pub fn call_dict_method(
             if args.is_empty() || args.len() > 2 {
                 return Err(Error::Runtime("get() takes 1 or 2 arguments".to_string()));
             }
-            let key = args[0].as_str().ok_or_else(|| Error::Type {
-                expected: "str".to_string(),
-                got: args[0].type_name().to_string(),
-            })?;
+            let key = &args[0];
             let default = args.get(1).cloned().unwrap_or(PyValue::None);
             Ok(pairs
                 .iter()
@@ -271,7 +300,7 @@ pub fn call_dict_method(
                 return Err(Error::Runtime("keys() takes no arguments".to_string()));
             }
             Ok(PyValue::List(
-                pairs.iter().map(|(k, _)| PyValue::Str(k.clone())).collect(),
+                pairs.iter().map(|(k, _)| k.clone()).collect(),
             ))
         }
         "values" => {
@@ -289,7 +318,7 @@ pub fn call_dict_method(
             Ok(PyValue::List(
                 pairs
                     .iter()
-                    .map(|(k, v)| PyValue::List(vec![PyValue::Str(k.clone()), v.clone()]))
+                    .map(|(k, v)| PyValue::Tuple(vec![k.clone(), v.clone()]))
                     .collect(),
             ))
         }
@@ -433,10 +462,214 @@ pub fn mutate_list(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -
     }
 }
 
+/// Call a method on a set value (non-mutating).
+pub fn call_set_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+    match method {
+        "copy" => {
+            if !args.is_empty() {
+                return Err(Error::Runtime("copy() takes no arguments".to_string()));
+            }
+            Ok(PyValue::Set(items.to_vec()))
+        }
+        "union" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "union() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            let mut result = items.to_vec();
+            for v in other {
+                if !result.contains(&v) {
+                    result.push(v);
+                }
+            }
+            Ok(PyValue::Set(result))
+        }
+        "intersection" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "intersection() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            let result: Vec<PyValue> = items
+                .iter()
+                .filter(|v| other.contains(v))
+                .cloned()
+                .collect();
+            Ok(PyValue::Set(result))
+        }
+        "difference" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "difference() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            let result: Vec<PyValue> = items
+                .iter()
+                .filter(|v| !other.contains(v))
+                .cloned()
+                .collect();
+            Ok(PyValue::Set(result))
+        }
+        "symmetric_difference" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "symmetric_difference() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            let mut result: Vec<PyValue> = items
+                .iter()
+                .filter(|v| !other.contains(v))
+                .cloned()
+                .collect();
+            for v in &other {
+                if !items.contains(v) {
+                    result.push(v.clone());
+                }
+            }
+            Ok(PyValue::Set(result))
+        }
+        "issubset" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "issubset() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            Ok(PyValue::Bool(items.iter().all(|v| other.contains(v))))
+        }
+        "issuperset" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "issuperset() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            Ok(PyValue::Bool(other.iter().all(|v| items.contains(v))))
+        }
+        "isdisjoint" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "isdisjoint() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            Ok(PyValue::Bool(!items.iter().any(|v| other.contains(v))))
+        }
+        _ => Err(Error::Unsupported(format!(
+            "Set method '{}' not implemented",
+            method
+        ))),
+    }
+}
+
+/// Convert a PyValue to a Vec for set operations (accepts set, list, tuple).
+fn to_set_items(value: &PyValue) -> Result<Vec<PyValue>> {
+    match value {
+        PyValue::Set(items) | PyValue::List(items) | PyValue::Tuple(items) => Ok(items.clone()),
+        _ => Err(Error::Type {
+            expected: "iterable".to_string(),
+            got: value.type_name().to_string(),
+        }),
+    }
+}
+
+/// Mutating set methods (add, discard, remove, clear, update, pop)
+#[allow(dead_code)]
+pub fn mutate_set(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) -> Result<PyValue> {
+    match method {
+        "add" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime("add() takes exactly 1 argument".to_string()));
+            }
+            let elem = &args[0];
+            if !elem.is_hashable() {
+                return Err(Error::Runtime(format!(
+                    "TypeError: unhashable type: '{}'",
+                    elem.type_name()
+                )));
+            }
+            if !items.contains(elem) {
+                items.push(elem.clone());
+            }
+            Ok(PyValue::None)
+        }
+        "discard" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "discard() takes exactly 1 argument".to_string(),
+                ));
+            }
+            if let Some(pos) = items.iter().position(|v| v == &args[0]) {
+                items.remove(pos);
+            }
+            Ok(PyValue::None)
+        }
+        "remove" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "remove() takes exactly 1 argument".to_string(),
+                ));
+            }
+            if let Some(pos) = items.iter().position(|v| v == &args[0]) {
+                items.remove(pos);
+                Ok(PyValue::None)
+            } else {
+                Err(Error::Runtime(format!("KeyError: {}", args[0])))
+            }
+        }
+        "clear" => {
+            if !args.is_empty() {
+                return Err(Error::Runtime("clear() takes no arguments".to_string()));
+            }
+            items.clear();
+            Ok(PyValue::None)
+        }
+        "update" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "update() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let other = to_set_items(&args[0])?;
+            for v in other {
+                if !v.is_hashable() {
+                    return Err(Error::Runtime(format!(
+                        "TypeError: unhashable type: '{}'",
+                        v.type_name()
+                    )));
+                }
+                if !items.contains(&v) {
+                    items.push(v);
+                }
+            }
+            Ok(PyValue::None)
+        }
+        "pop" => {
+            if !args.is_empty() {
+                return Err(Error::Runtime("pop() takes no arguments".to_string()));
+            }
+            if items.is_empty() {
+                Err(Error::Runtime("pop from an empty set".to_string()))
+            } else {
+                Ok(items.remove(0))
+            }
+        }
+        _ => Err(Error::Unsupported(format!(
+            "Set method '{}' not implemented",
+            method
+        ))),
+    }
+}
+
 /// Mutating dict methods (update, setdefault, pop, clear)
 #[allow(dead_code)]
 pub fn mutate_dict(
-    pairs: &mut Vec<(String, PyValue)>,
+    pairs: &mut Vec<(PyValue, PyValue)>,
     method: &str,
     args: Vec<PyValue>,
 ) -> Result<PyValue> {
@@ -472,26 +705,20 @@ pub fn mutate_dict(
                     "setdefault() takes 1 or 2 arguments".to_string(),
                 ));
             }
-            let key = args[0].as_str().ok_or_else(|| Error::Type {
-                expected: "str".to_string(),
-                got: args[0].type_name().to_string(),
-            })?;
+            let key = &args[0];
             let default = args.get(1).cloned().unwrap_or(PyValue::None);
 
             if let Some((_, v)) = pairs.iter().find(|(k, _)| k == key) {
                 return Ok(v.clone());
             }
-            pairs.push((key.to_string(), default.clone()));
+            pairs.push((key.clone(), default.clone()));
             Ok(default)
         }
         "pop" => {
             if args.is_empty() || args.len() > 2 {
                 return Err(Error::Runtime("pop() takes 1 or 2 arguments".to_string()));
             }
-            let key = args[0].as_str().ok_or_else(|| Error::Type {
-                expected: "str".to_string(),
-                got: args[0].type_name().to_string(),
-            })?;
+            let key = &args[0];
             let default = args.get(1).cloned();
 
             if let Some(pos) = pairs.iter().position(|(k, _)| k == key) {
@@ -500,7 +727,7 @@ pub fn mutate_dict(
             }
             match default {
                 Some(d) => Ok(d),
-                None => Err(Error::Runtime(format!("KeyError: '{}'", key))),
+                None => Err(Error::Runtime(format!("KeyError: {}", key))),
             }
         }
         "clear" => {

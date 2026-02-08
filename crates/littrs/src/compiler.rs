@@ -22,6 +22,9 @@ const LIST_MUTATING_METHODS: &[&str] = &[
 /// The set of method names that mutate a dict in place.
 const DICT_MUTATING_METHODS: &[&str] = &["update", "setdefault", "pop", "clear"];
 
+/// The set of method names that mutate a set in place.
+const SET_MUTATING_METHODS: &[&str] = &["add", "discard", "remove", "clear", "update", "pop"];
+
 /// Compiler state for tracking loops (used for break/continue resolution).
 struct LoopContext {
     /// Instruction index of the loop start (target for `continue`).
@@ -477,11 +480,10 @@ impl Compiler {
             }
 
             Expr::Tuple(tuple) => {
-                // Tuples are stored as Lists in our value system
                 for elt in &tuple.elts {
                     self.compile_expr(elt)?;
                 }
-                self.emit(Op::BuildList(tuple.elts.len() as u32), span);
+                self.emit(Op::BuildTuple(tuple.elts.len() as u32), span);
             }
 
             Expr::Dict(dict) => {
@@ -495,6 +497,13 @@ impl Compiler {
                     self.compile_expr(&item.value)?;
                 }
                 self.emit(Op::BuildDict(dict.items.len() as u32), span);
+            }
+
+            Expr::Set(set) => {
+                for elt in &set.elts {
+                    self.compile_expr(elt)?;
+                }
+                self.emit(Op::BuildSet(set.elts.len() as u32), span);
             }
 
             Expr::BinOp(binop) => {
@@ -832,8 +841,9 @@ impl Compiler {
         if let Expr::Name(name) = attr.value.as_ref() {
             let is_list_mut = LIST_MUTATING_METHODS.contains(&method_name);
             let is_dict_mut = DICT_MUTATING_METHODS.contains(&method_name);
+            let is_set_mut = SET_MUTATING_METHODS.contains(&method_name);
 
-            if is_list_mut || is_dict_mut {
+            if is_list_mut || is_dict_mut || is_set_mut {
                 let var_idx = self.add_name(name.id.as_str());
                 // Compile arguments
                 for arg in &call.arguments.args {
@@ -1320,7 +1330,7 @@ fn eval_const_expr(expr: &Expr) -> Result<PyValue> {
         Expr::Dict(d) if d.items.is_empty() => Ok(PyValue::Dict(Vec::new())),
         Expr::Tuple(t) => {
             let items: Result<Vec<PyValue>> = t.elts.iter().map(eval_const_expr).collect();
-            Ok(PyValue::List(items?))
+            Ok(PyValue::Tuple(items?))
         }
         _ => Err(Error::Unsupported(
             "Non-constant default parameter value".to_string(),

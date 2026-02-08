@@ -22,8 +22,8 @@
 //! sandbox.register_fn("fetch_data", |args| {
 //!     let id = args[0].as_int().unwrap_or(0);
 //!     PyValue::Dict(vec![
-//!         ("id".to_string(), PyValue::Int(id)),
-//!         ("name".to_string(), PyValue::Str("Example".to_string())),
+//!         (PyValue::Str("id".to_string()), PyValue::Int(id)),
+//!         (PyValue::Str("name".to_string()), PyValue::Str("Example".to_string())),
 //!     ])
 //! });
 //!

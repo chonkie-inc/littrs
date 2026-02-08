@@ -27,12 +27,23 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
                 result.extend(b.clone());
                 Ok(PyValue::List(result))
             }
+            (PyValue::Tuple(a), PyValue::Tuple(b)) => {
+                let mut result = a.clone();
+                result.extend(b.clone());
+                Ok(PyValue::Tuple(result))
+            }
             _ => Err(Error::Type {
                 expected: "compatible types for +".to_string(),
                 got: format!("{} and {}", left.type_name(), right.type_name()),
             }),
         },
-        BinOp::Sub => numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
+        BinOp::Sub => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let items: Vec<PyValue> = a.iter().filter(|v| !b.contains(v)).cloned().collect();
+                Ok(PyValue::Set(items))
+            }
+            _ => numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
+        },
         BinOp::Mult => match (left, right) {
             (PyValue::Int(a), PyValue::Int(b)) => Ok(PyValue::Int(a * b)),
             (PyValue::Float(a), PyValue::Float(b)) => Ok(PyValue::Float(a * b)),
@@ -54,6 +65,17 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
                         result.extend(l.clone());
                     }
                     Ok(PyValue::List(result))
+                }
+            }
+            (PyValue::Tuple(t), PyValue::Int(n)) | (PyValue::Int(n), PyValue::Tuple(t)) => {
+                if *n <= 0 {
+                    Ok(PyValue::Tuple(vec![]))
+                } else {
+                    let mut result = Vec::new();
+                    for _ in 0..*n {
+                        result.extend(t.clone());
+                    }
+                    Ok(PyValue::Tuple(result))
                 }
             }
             _ => Err(Error::Type {
@@ -141,9 +163,38 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
                 Ok(PyValue::Float(result))
             }
         }
-        BinOp::BitOr => int_binop(left, right, |a, b| a | b),
-        BinOp::BitXor => int_binop(left, right, |a, b| a ^ b),
-        BinOp::BitAnd => int_binop(left, right, |a, b| a & b),
+        BinOp::BitOr => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let mut items = a.clone();
+                for v in b {
+                    if !items.contains(v) {
+                        items.push(v.clone());
+                    }
+                }
+                Ok(PyValue::Set(items))
+            }
+            _ => int_binop(left, right, |a, b| a | b),
+        },
+        BinOp::BitXor => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let mut items: Vec<PyValue> =
+                    a.iter().filter(|v| !b.contains(v)).cloned().collect();
+                for v in b {
+                    if !a.contains(v) {
+                        items.push(v.clone());
+                    }
+                }
+                Ok(PyValue::Set(items))
+            }
+            _ => int_binop(left, right, |a, b| a ^ b),
+        },
+        BinOp::BitAnd => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let items: Vec<PyValue> = a.iter().filter(|v| b.contains(v)).cloned().collect();
+                Ok(PyValue::Set(items))
+            }
+            _ => int_binop(left, right, |a, b| a & b),
+        },
         BinOp::LShift => int_binop(left, right, |a, b| a << b),
         BinOp::RShift => int_binop(left, right, |a, b| a >> b),
     }
@@ -155,14 +206,42 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
 /// strings, and dicts. For `Is`/`IsNot`, only `None is None` is true.
 pub fn apply_cmpop(op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> {
     match op {
-        CmpOp::Eq => Ok(left == right),
-        CmpOp::NotEq => Ok(left != right),
-        CmpOp::Lt => compare_values(left, right, |a, b| a < b, |a, b| a < b),
-        CmpOp::LtE => compare_values(left, right, |a, b| a <= b, |a, b| a <= b),
-        CmpOp::Gt => compare_values(left, right, |a, b| a > b, |a, b| a > b),
-        CmpOp::GtE => compare_values(left, right, |a, b| a >= b, |a, b| a >= b),
+        CmpOp::Eq => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                Ok(a.len() == b.len() && a.iter().all(|v| b.contains(v)))
+            }
+            _ => Ok(left == right),
+        },
+        CmpOp::NotEq => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                Ok(a.len() != b.len() || !a.iter().all(|v| b.contains(v)))
+            }
+            _ => Ok(left != right),
+        },
+        CmpOp::Lt => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                Ok(a.len() < b.len() && a.iter().all(|v| b.contains(v)))
+            }
+            _ => compare_values(left, right, |a, b| a < b, |a, b| a < b),
+        },
+        CmpOp::LtE => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => Ok(a.iter().all(|v| b.contains(v))),
+            _ => compare_values(left, right, |a, b| a <= b, |a, b| a <= b),
+        },
+        CmpOp::Gt => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                Ok(a.len() > b.len() && b.iter().all(|v| a.contains(v)))
+            }
+            _ => compare_values(left, right, |a, b| a > b, |a, b| a > b),
+        },
+        CmpOp::GtE => match (left, right) {
+            (PyValue::Set(a), PyValue::Set(b)) => Ok(b.iter().all(|v| a.contains(v))),
+            _ => compare_values(left, right, |a, b| a >= b, |a, b| a >= b),
+        },
         CmpOp::In => match right {
-            PyValue::List(items) => Ok(items.contains(left)),
+            PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => {
+                Ok(items.contains(left))
+            }
             PyValue::Str(s) => {
                 if let PyValue::Str(needle) = left {
                     Ok(s.contains(needle.as_str()))
@@ -173,16 +252,7 @@ pub fn apply_cmpop(op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> 
                     })
                 }
             }
-            PyValue::Dict(pairs) => {
-                if let PyValue::Str(key) = left {
-                    Ok(pairs.iter().any(|(k, _)| k == key))
-                } else {
-                    Err(Error::Type {
-                        expected: "str".to_string(),
-                        got: left.type_name().to_string(),
-                    })
-                }
-            }
+            PyValue::Dict(pairs) => Ok(pairs.iter().any(|(k, _)| k == left)),
             _ => Err(Error::Type {
                 expected: "container".to_string(),
                 got: right.type_name().to_string(),
@@ -200,6 +270,40 @@ pub fn apply_cmpop(op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> 
             let is_result = apply_cmpop(&CmpOp::Is, left, right)?;
             Ok(!is_result)
         }
+    }
+}
+
+/// Compare two values and return their ordering.
+///
+/// Non-generic to avoid infinite monomorphization with recursive sequence comparison.
+fn compare_elements(left: &PyValue, right: &PyValue) -> Result<std::cmp::Ordering> {
+    match (left, right) {
+        (PyValue::Int(a), PyValue::Int(b)) => Ok(a.cmp(b)),
+        (PyValue::Float(a), PyValue::Float(b)) => {
+            Ok(a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        }
+        (PyValue::Int(a), PyValue::Float(b)) => {
+            let a = *a as f64;
+            Ok(a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        }
+        (PyValue::Float(a), PyValue::Int(b)) => {
+            let b = *b as f64;
+            Ok(a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal))
+        }
+        (PyValue::Str(a), PyValue::Str(b)) => Ok(a.cmp(b)),
+        (PyValue::Tuple(a), PyValue::Tuple(b)) | (PyValue::List(a), PyValue::List(b)) => {
+            for (av, bv) in a.iter().zip(b.iter()) {
+                match compare_elements(av, bv)? {
+                    std::cmp::Ordering::Equal => {}
+                    ord => return Ok(ord),
+                }
+            }
+            Ok(a.len().cmp(&b.len()))
+        }
+        _ => Err(Error::Type {
+            expected: "comparable types".to_string(),
+            got: format!("{} and {}", left.type_name(), right.type_name()),
+        }),
     }
 }
 
@@ -257,6 +361,21 @@ where
             && int_cmp(0, 1)
             || a.cmp(b) == std::cmp::Ordering::Equal && int_cmp(0, 0)
             || a.cmp(b) == std::cmp::Ordering::Greater && int_cmp(1, 0)),
+        (PyValue::Tuple(a), PyValue::Tuple(b)) | (PyValue::List(a), PyValue::List(b)) => {
+            // Lexicographic comparison
+            for (av, bv) in a.iter().zip(b.iter()) {
+                match compare_elements(av, bv)? {
+                    std::cmp::Ordering::Less => return Ok(int_cmp(0, 1)),
+                    std::cmp::Ordering::Greater => return Ok(int_cmp(1, 0)),
+                    std::cmp::Ordering::Equal => {}
+                }
+            }
+            // All compared elements equal — shorter sequence is "less"
+            let ord = a.len().cmp(&b.len());
+            Ok(ord == std::cmp::Ordering::Less && int_cmp(0, 1)
+                || ord == std::cmp::Ordering::Equal && int_cmp(0, 0)
+                || ord == std::cmp::Ordering::Greater && int_cmp(1, 0))
+        }
         _ => Err(Error::Type {
             expected: "comparable types".to_string(),
             got: format!("{} and {}", left.type_name(), right.type_name()),

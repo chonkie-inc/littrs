@@ -28,9 +28,12 @@ fn greet(name: String, prefix: Option<String>) -> String {
 #[tool]
 fn get_weather(city: String) -> PyValue {
     PyValue::Dict(vec![
-        ("city".to_string(), PyValue::Str(city)),
-        ("temp".to_string(), PyValue::Int(22)),
-        ("unit".to_string(), PyValue::Str("celsius".to_string())),
+        (PyValue::Str("city".to_string()), PyValue::Str(city)),
+        (PyValue::Str("temp".to_string()), PyValue::Int(22)),
+        (
+            PyValue::Str("unit".to_string()),
+            PyValue::Str("celsius".to_string()),
+        ),
     ])
 }
 
@@ -89,10 +92,15 @@ fn test_tool_call_with_optional_arg_omitted() {
 fn test_tool_call_returns_pyvalue() {
     let result = get_weather::call(vec![PyValue::Str("Paris".to_string())]);
     if let PyValue::Dict(pairs) = result {
-        let city = pairs.iter().find(|(k, _)| k == "city");
+        let city = pairs
+            .iter()
+            .find(|(k, _)| k == &PyValue::Str("city".to_string()));
         assert_eq!(
             city,
-            Some(&("city".to_string(), PyValue::Str("Paris".to_string())))
+            Some(&(
+                PyValue::Str("city".to_string()),
+                PyValue::Str("Paris".to_string())
+            ))
         );
     } else {
         panic!("Expected Dict, got {:?}", result);
@@ -106,7 +114,9 @@ fn test_tool_call_with_wrong_type() {
 
     // Should return an error dict
     if let PyValue::Dict(pairs) = result {
-        let error = pairs.iter().find(|(k, _)| k == "error");
+        let error = pairs
+            .iter()
+            .find(|(k, _)| k == &PyValue::Str("error".to_string()));
         assert!(error.is_some(), "Expected error in result");
         if let Some((_, PyValue::Str(msg))) = error {
             assert!(
@@ -132,7 +142,9 @@ fn test_tool_call_with_missing_required_arg() {
 
     // Should return an error dict
     if let PyValue::Dict(pairs) = result {
-        let error = pairs.iter().find(|(k, _)| k == "error");
+        let error = pairs
+            .iter()
+            .find(|(k, _)| k == &PyValue::Str("error".to_string()));
         assert!(error.is_some(), "Expected error in result");
         if let Some((_, PyValue::Str(msg))) = error {
             assert!(

@@ -222,8 +222,11 @@ fn test_tool_returning_dict() {
     sandbox.register_fn("get_user", |args| {
         let id = args[0].as_int().unwrap_or(0);
         PyValue::Dict(vec![
-            ("id".to_string(), PyValue::Int(id)),
-            ("name".to_string(), PyValue::Str("Test User".to_string())),
+            (PyValue::Str("id".to_string()), PyValue::Int(id)),
+            (
+                PyValue::Str("name".to_string()),
+                PyValue::Str("Test User".to_string()),
+            ),
         ])
     });
 
@@ -1377,7 +1380,7 @@ f(1, 2, 3)
         .unwrap();
     assert_eq!(
         result,
-        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+        PyValue::Tuple(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
     );
 }
 
@@ -1398,7 +1401,7 @@ f(1, 2, 3)
         result,
         PyValue::List(vec![
             PyValue::Int(1),
-            PyValue::List(vec![PyValue::Int(2), PyValue::Int(3)])
+            PyValue::Tuple(vec![PyValue::Int(2), PyValue::Int(3)])
         ])
     );
 }
@@ -1416,7 +1419,7 @@ f(1)
 "#,
         )
         .unwrap();
-    assert_eq!(result, PyValue::List(vec![]));
+    assert_eq!(result, PyValue::Tuple(vec![]));
 }
 
 #[test]
@@ -1435,8 +1438,8 @@ f(x=1, y=2)
     assert_eq!(
         result,
         PyValue::Dict(vec![
-            ("x".to_string(), PyValue::Int(1)),
-            ("y".to_string(), PyValue::Int(2)),
+            (PyValue::Str("x".to_string()), PyValue::Int(1)),
+            (PyValue::Str("y".to_string()), PyValue::Int(2)),
         ])
     );
 }
@@ -1459,8 +1462,8 @@ f(1, x=2, y=3)
         PyValue::List(vec![
             PyValue::Int(1),
             PyValue::Dict(vec![
-                ("x".to_string(), PyValue::Int(2)),
-                ("y".to_string(), PyValue::Int(3)),
+                (PyValue::Str("x".to_string()), PyValue::Int(2)),
+                (PyValue::Str("y".to_string()), PyValue::Int(3)),
             ])
         ])
     );
@@ -1500,8 +1503,8 @@ f(1, 10, 20, 30, x=99)
         PyValue::List(vec![
             PyValue::Int(1),
             PyValue::Int(10),
-            PyValue::List(vec![PyValue::Int(20), PyValue::Int(30)]),
-            PyValue::Dict(vec![("x".to_string(), PyValue::Int(99))]),
+            PyValue::Tuple(vec![PyValue::Int(20), PyValue::Int(30)]),
+            PyValue::Dict(vec![(PyValue::Str("x".to_string()), PyValue::Int(99))]),
         ])
     );
 }
@@ -1555,4 +1558,882 @@ f(1, 2, c=3)
         )
         .unwrap_err();
     assert!(err.to_string().contains("unexpected keyword"));
+}
+
+// ============================================================================
+// Set tests
+// ============================================================================
+
+#[test]
+fn test_set_literal() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("{1, 2, 3}").unwrap(),
+        PyValue::Set(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_set_dedup() {
+    let mut sandbox = Sandbox::new();
+
+    // Duplicates should be removed
+    let result = sandbox.execute("{1, 2, 2, 3, 3, 3}").unwrap();
+    if let PyValue::Set(items) = &result {
+        assert_eq!(items.len(), 3);
+    } else {
+        panic!("Expected Set, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_set_empty_builtin() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(sandbox.execute("set()").unwrap(), PyValue::Set(vec![]));
+}
+
+#[test]
+fn test_set_from_list() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox.execute("set([1, 2, 2, 3])").unwrap();
+    if let PyValue::Set(items) = &result {
+        assert_eq!(items.len(), 3);
+        assert!(items.contains(&PyValue::Int(1)));
+        assert!(items.contains(&PyValue::Int(2)));
+        assert!(items.contains(&PyValue::Int(3)));
+    } else {
+        panic!("Expected Set, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_set_membership() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("2 in {1, 2, 3}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("5 in {1, 2, 3}").unwrap(),
+        PyValue::Bool(false)
+    );
+    assert_eq!(
+        sandbox.execute("5 not in {1, 2, 3}").unwrap(),
+        PyValue::Bool(true)
+    );
+}
+
+#[test]
+fn test_set_len() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(sandbox.execute("len({1, 2, 3})").unwrap(), PyValue::Int(3));
+    assert_eq!(sandbox.execute("len(set())").unwrap(), PyValue::Int(0));
+}
+
+#[test]
+fn test_set_union() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox.execute("{1, 2} | {2, 3}").unwrap();
+    if let PyValue::Set(items) = &result {
+        assert_eq!(items.len(), 3);
+        assert!(items.contains(&PyValue::Int(1)));
+        assert!(items.contains(&PyValue::Int(2)));
+        assert!(items.contains(&PyValue::Int(3)));
+    } else {
+        panic!("Expected Set, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_set_intersection() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("{1, 2, 3} & {2, 3, 4}").unwrap(),
+        PyValue::Set(vec![PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_set_difference() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("{1, 2, 3} - {2, 3, 4}").unwrap(),
+        PyValue::Set(vec![PyValue::Int(1)])
+    );
+}
+
+#[test]
+fn test_set_symmetric_difference() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox.execute("{1, 2, 3} ^ {2, 3, 4}").unwrap();
+    if let PyValue::Set(items) = &result {
+        assert_eq!(items.len(), 2);
+        assert!(items.contains(&PyValue::Int(1)));
+        assert!(items.contains(&PyValue::Int(4)));
+    } else {
+        panic!("Expected Set, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_set_equality() {
+    let mut sandbox = Sandbox::new();
+
+    // Order-independent equality
+    assert_eq!(
+        sandbox.execute("{3, 1, 2} == {1, 2, 3}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("{1, 2} == {1, 2, 3}").unwrap(),
+        PyValue::Bool(false)
+    );
+}
+
+#[test]
+fn test_set_subset_superset() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("{1, 2} <= {1, 2, 3}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("{1, 2} < {1, 2, 3}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("{1, 2, 3} < {1, 2, 3}").unwrap(),
+        PyValue::Bool(false)
+    );
+    assert_eq!(
+        sandbox.execute("{1, 2, 3} >= {1, 2}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("{1, 2, 3} > {1, 2}").unwrap(),
+        PyValue::Bool(true)
+    );
+}
+
+#[test]
+fn test_set_methods() {
+    let mut sandbox = Sandbox::new();
+
+    // add
+    sandbox.execute("s = {1, 2}").unwrap();
+    sandbox.execute("s.add(3)").unwrap();
+    assert_eq!(sandbox.execute("3 in s").unwrap(), PyValue::Bool(true));
+
+    // discard (no error if missing)
+    sandbox.execute("s.discard(99)").unwrap();
+
+    // remove (error if missing)
+    assert!(sandbox.execute("s.remove(99)").is_err());
+
+    // clear
+    sandbox.execute("s.clear()").unwrap();
+    assert_eq!(sandbox.execute("len(s)").unwrap(), PyValue::Int(0));
+}
+
+#[test]
+fn test_set_method_union_intersection() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox.execute("{1, 2}.union({2, 3})").unwrap();
+    if let PyValue::Set(items) = &result {
+        assert_eq!(items.len(), 3);
+    } else {
+        panic!("Expected Set");
+    }
+
+    assert_eq!(
+        sandbox
+            .execute("{1, 2, 3}.intersection({2, 3, 4})")
+            .unwrap(),
+        PyValue::Set(vec![PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    assert_eq!(
+        sandbox.execute("{1, 2}.issubset({1, 2, 3})").unwrap(),
+        PyValue::Bool(true)
+    );
+
+    assert_eq!(
+        sandbox.execute("{1, 2, 3}.issuperset({1, 2})").unwrap(),
+        PyValue::Bool(true)
+    );
+
+    assert_eq!(
+        sandbox.execute("{1, 2}.isdisjoint({3, 4})").unwrap(),
+        PyValue::Bool(true)
+    );
+}
+
+#[test]
+fn test_set_iteration() {
+    let mut sandbox = Sandbox::new();
+
+    // For loop over a set
+    sandbox
+        .execute(
+            r#"
+result = []
+for x in {3, 1, 2}:
+    result.append(x)
+"#,
+        )
+        .unwrap();
+    let result = sandbox.execute("sorted(result)").unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_set_type_name() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("type({1, 2})").unwrap(),
+        PyValue::Str("set".to_string())
+    );
+    assert_eq!(
+        sandbox.execute("isinstance({1}, 'set')").unwrap(),
+        PyValue::Bool(true)
+    );
+}
+
+#[test]
+fn test_set_truthiness() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("bool({1, 2})").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("bool(set())").unwrap(),
+        PyValue::Bool(false)
+    );
+}
+
+#[test]
+fn test_set_update() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("s = {1, 2}").unwrap();
+    sandbox.execute("s.update({3, 4})").unwrap();
+    assert_eq!(sandbox.execute("len(s)").unwrap(), PyValue::Int(4));
+    assert_eq!(sandbox.execute("3 in s").unwrap(), PyValue::Bool(true));
+}
+
+#[test]
+fn test_set_unhashable_rejected() {
+    let mut sandbox = Sandbox::new();
+
+    // Lists are not hashable and cannot be set elements
+    assert!(sandbox.execute("{[1, 2]}").is_err());
+}
+
+#[test]
+fn test_set_print_format() {
+    let mut sandbox = Sandbox::new();
+
+    let out = sandbox.execute_with_output("print(set())").unwrap();
+    assert_eq!(out.printed, vec!["set()"]);
+
+    let out = sandbox.execute_with_output("print({1})").unwrap();
+    assert_eq!(out.printed, vec!["{1}"]);
+}
+
+// ============================================================================
+// Tuple tests
+// ============================================================================
+
+#[test]
+fn test_tuple_literal() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("(1, 2, 3)").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_tuple_single_element() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("(1,)").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(1)])
+    );
+}
+
+#[test]
+fn test_tuple_empty() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(sandbox.execute("()").unwrap(), PyValue::Tuple(vec![]));
+}
+
+#[test]
+fn test_tuple_immutable() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("t = (1, 2, 3)").unwrap();
+    assert!(sandbox.execute("t[0] = 99").is_err());
+}
+
+#[test]
+fn test_tuple_indexing() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("t = (10, 20, 30)").unwrap();
+    assert_eq!(sandbox.execute("t[0]").unwrap(), PyValue::Int(10));
+    assert_eq!(sandbox.execute("t[-1]").unwrap(), PyValue::Int(30));
+}
+
+#[test]
+fn test_tuple_concatenation() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("(1, 2) + (3, 4)").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(3),
+            PyValue::Int(4)
+        ])
+    );
+}
+
+#[test]
+fn test_tuple_repetition() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("(1, 2) * 3").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(1),
+            PyValue::Int(2),
+            PyValue::Int(1),
+            PyValue::Int(2),
+        ])
+    );
+}
+
+#[test]
+fn test_tuple_membership() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("2 in (1, 2, 3)").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("5 in (1, 2, 3)").unwrap(),
+        PyValue::Bool(false)
+    );
+}
+
+#[test]
+fn test_tuple_unpacking() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("a, b, c = (1, 2, 3)").unwrap();
+    assert_eq!(sandbox.execute("a").unwrap(), PyValue::Int(1));
+    assert_eq!(sandbox.execute("b").unwrap(), PyValue::Int(2));
+    assert_eq!(sandbox.execute("c").unwrap(), PyValue::Int(3));
+}
+
+#[test]
+fn test_tuple_type_name() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("type((1, 2))").unwrap(),
+        PyValue::Str("tuple".to_string())
+    );
+}
+
+#[test]
+fn test_tuple_builtin() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("tuple([1, 2, 3])").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+    assert_eq!(
+        sandbox.execute("tuple('abc')").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Str("a".to_string()),
+            PyValue::Str("b".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_tuple_iteration() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox
+        .execute(
+            r#"
+result = []
+for x in (10, 20, 30):
+    result.append(x)
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        sandbox.execute("result").unwrap(),
+        PyValue::List(vec![PyValue::Int(10), PyValue::Int(20), PyValue::Int(30)])
+    );
+}
+
+#[test]
+fn test_tuple_comparison() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("(1, 2) == (1, 2)").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("(1, 2) < (1, 3)").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("(1, 2) > (1, 1)").unwrap(),
+        PyValue::Bool(true)
+    );
+}
+
+#[test]
+fn test_tuple_as_dict_key() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("d = {}").unwrap();
+    sandbox.execute("d[(1, 2)] = 'hello'").unwrap();
+    assert_eq!(
+        sandbox.execute("d[(1, 2)]").unwrap(),
+        PyValue::Str("hello".to_string())
+    );
+}
+
+// ============================================================================
+// Non-string dict key tests
+// ============================================================================
+
+#[test]
+fn test_dict_int_keys() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("d = {1: 'one', 2: 'two'}").unwrap();
+    assert_eq!(
+        sandbox.execute("d[1]").unwrap(),
+        PyValue::Str("one".to_string())
+    );
+    assert_eq!(
+        sandbox.execute("d[2]").unwrap(),
+        PyValue::Str("two".to_string())
+    );
+}
+
+#[test]
+fn test_dict_bool_keys() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("d = {True: 'yes', False: 'no'}").unwrap();
+    assert_eq!(
+        sandbox.execute("d[True]").unwrap(),
+        PyValue::Str("yes".to_string())
+    );
+}
+
+#[test]
+fn test_dict_none_key() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.execute("d = {None: 'nothing'}").unwrap();
+    assert_eq!(
+        sandbox.execute("d[None]").unwrap(),
+        PyValue::Str("nothing".to_string())
+    );
+}
+
+#[test]
+fn test_dict_mixed_keys() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox
+        .execute("d = {1: 'int', 'a': 'str', (1,2): 'tuple'}")
+        .unwrap();
+    assert_eq!(
+        sandbox.execute("d[1]").unwrap(),
+        PyValue::Str("int".to_string())
+    );
+    assert_eq!(
+        sandbox.execute("d['a']").unwrap(),
+        PyValue::Str("str".to_string())
+    );
+    assert_eq!(
+        sandbox.execute("d[(1,2)]").unwrap(),
+        PyValue::Str("tuple".to_string())
+    );
+}
+
+#[test]
+fn test_dict_unhashable_key_rejected() {
+    let mut sandbox = Sandbox::new();
+
+    // Lists are not hashable
+    assert!(sandbox.execute("{[1, 2]: 'bad'}").is_err());
+}
+
+#[test]
+fn test_dict_int_key_membership() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("1 in {1: 'a', 2: 'b'}").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("3 in {1: 'a', 2: 'b'}").unwrap(),
+        PyValue::Bool(false)
+    );
+}
+
+#[test]
+fn test_enumerate_returns_tuples() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("list(enumerate(['a', 'b']))").unwrap(),
+        PyValue::List(vec![
+            PyValue::Tuple(vec![PyValue::Int(0), PyValue::Str("a".to_string())]),
+            PyValue::Tuple(vec![PyValue::Int(1), PyValue::Str("b".to_string())]),
+        ])
+    );
+}
+
+#[test]
+fn test_zip_returns_tuples() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.execute("list(zip([1, 2], ['a', 'b']))").unwrap(),
+        PyValue::List(vec![
+            PyValue::Tuple(vec![PyValue::Int(1), PyValue::Str("a".to_string())]),
+            PyValue::Tuple(vec![PyValue::Int(2), PyValue::Str("b".to_string())]),
+        ])
+    );
+}
+
+#[test]
+fn test_dict_items_returns_tuples() {
+    let mut sandbox = Sandbox::new();
+
+    // dict.items() should return list of tuples
+    sandbox.execute("d = {'a': 1}").unwrap();
+    let result = sandbox.execute("list(d.items())").unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![PyValue::Tuple(vec![
+            PyValue::Str("a".to_string()),
+            PyValue::Int(1),
+        ])])
+    );
+}
+
+// ============================================================================
+// Tuple edge cases
+// ============================================================================
+
+#[test]
+fn test_tuple_edge_cases() {
+    let mut sandbox = Sandbox::new();
+
+    // 1. Tuple slicing: (1,2,3,4)[1:3] → (2,3)
+    assert_eq!(
+        sandbox.execute("(1,2,3,4)[1:3]").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 2a. Tuple .index() method
+    assert_eq!(
+        sandbox.execute("(10, 20, 30, 20).index(20)").unwrap(),
+        PyValue::Int(1)
+    );
+
+    // 2b. Tuple .count() method
+    assert_eq!(
+        sandbox.execute("(10, 20, 30, 20).count(20)").unwrap(),
+        PyValue::Int(2)
+    );
+
+    // 3. len() on tuple
+    assert_eq!(sandbox.execute("len((1, 2, 3))").unwrap(), PyValue::Int(3));
+
+    // 4. sorted() on tuple
+    assert_eq!(
+        sandbox.execute("sorted((3, 1, 2))").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 5. tuple() with no args → empty tuple
+    assert_eq!(sandbox.execute("tuple()").unwrap(), PyValue::Tuple(vec![]));
+
+    // 6. Nested tuples: ((1,2), (3,4))
+    assert_eq!(
+        sandbox.execute("((1,2), (3,4))").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Tuple(vec![PyValue::Int(1), PyValue::Int(2)]),
+            PyValue::Tuple(vec![PyValue::Int(3), PyValue::Int(4)]),
+        ])
+    );
+
+    // 7. Tuple in list comprehension: [x for x in (1,2,3)]
+    assert_eq!(
+        sandbox.execute("[x for x in (1,2,3)]").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 8. min()/max() on tuple
+    assert_eq!(sandbox.execute("min((5, 2, 8))").unwrap(), PyValue::Int(2));
+    assert_eq!(sandbox.execute("max((5, 2, 8))").unwrap(), PyValue::Int(8));
+
+    // 9. sum() on tuple
+    assert_eq!(sandbox.execute("sum((1, 2, 3))").unwrap(), PyValue::Int(6));
+
+    // 10. any()/all() on tuple
+    assert_eq!(
+        sandbox.execute("any((0, 0, 1))").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("any((0, 0, 0))").unwrap(),
+        PyValue::Bool(false)
+    );
+    assert_eq!(
+        sandbox.execute("all((1, 2, 3))").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.execute("all((1, 0, 3))").unwrap(),
+        PyValue::Bool(false)
+    );
+
+    // 11. reversed() on tuple → list
+    assert_eq!(
+        sandbox.execute("list(reversed((1, 2, 3)))").unwrap(),
+        PyValue::List(vec![PyValue::Int(3), PyValue::Int(2), PyValue::Int(1)])
+    );
+
+    // 12. Print format for tuples
+    let out = sandbox.execute_with_output("print((1, 2))").unwrap();
+    assert_eq!(out.printed, vec!["(1, 2)"]);
+
+    let out = sandbox.execute_with_output("print((1,))").unwrap();
+    assert_eq!(out.printed, vec!["(1,)"]);
+
+    let out = sandbox.execute_with_output("print(())").unwrap();
+    assert_eq!(out.printed, vec!["()"]);
+}
+
+// ============================================================================
+// Set edge cases
+// ============================================================================
+
+#[test]
+fn test_set_edge_cases() {
+    let mut sandbox = Sandbox::new();
+
+    // 1. set() from string → set of characters
+    // Sets are unordered, so we check via sorted list
+    assert_eq!(
+        sandbox.execute("sorted(set('abca'))").unwrap(),
+        PyValue::List(vec![
+            PyValue::Str("a".to_string()),
+            PyValue::Str("b".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+
+    // 2. set() from tuple
+    assert_eq!(
+        sandbox.execute("sorted(set((3, 1, 2, 1)))").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 3. sorted() on set
+    assert_eq!(
+        sandbox.execute("sorted({3, 1, 2})").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 4. list() on set (order not guaranteed, so sort after)
+    assert_eq!(
+        sandbox.execute("sorted(list({3, 1, 2}))").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 5. sum()/min()/max() on set
+    assert_eq!(sandbox.execute("sum({1, 2, 3})").unwrap(), PyValue::Int(6));
+    assert_eq!(sandbox.execute("min({5, 2, 8})").unwrap(), PyValue::Int(2));
+    assert_eq!(sandbox.execute("max({5, 2, 8})").unwrap(), PyValue::Int(8));
+
+    // 6. any()/all() on set
+    assert_eq!(sandbox.execute("any({0, 1})").unwrap(), PyValue::Bool(true));
+    assert_eq!(sandbox.execute("any({0})").unwrap(), PyValue::Bool(false));
+    assert_eq!(
+        sandbox.execute("all({1, 2, 3})").unwrap(),
+        PyValue::Bool(true)
+    );
+
+    // 7. Set .pop() — removes an arbitrary element; just check it doesn't error
+    //    and that the set shrinks by 1
+    sandbox.execute("s = {10, 20, 30}").unwrap();
+    sandbox.execute("s.pop()").unwrap();
+    assert_eq!(sandbox.execute("len(s)").unwrap(), PyValue::Int(2));
+
+    // 8. Set .copy()
+    sandbox.execute("a = {1, 2, 3}").unwrap();
+    sandbox.execute("b = a.copy()").unwrap();
+    assert_eq!(
+        sandbox.execute("sorted(b)").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+
+    // 9. Set of mixed types: {1, 'a', True}
+    //    In Python, True == 1 so {1, 'a', True} is {1, 'a'}
+    //    Check that it doesn't crash at minimum
+    let result = sandbox.execute("len({1, 'a', True})");
+    assert!(result.is_ok());
+
+    // 10. Set containing tuples: {(1,2), (3,4)}
+    assert_eq!(
+        sandbox.execute("sorted({(1,2), (3,4)})").unwrap(),
+        PyValue::List(vec![
+            PyValue::Tuple(vec![PyValue::Int(1), PyValue::Int(2)]),
+            PyValue::Tuple(vec![PyValue::Int(3), PyValue::Int(4)]),
+        ])
+    );
+
+    // 11. enumerate() over set — just check it works and produces tuples
+    sandbox.execute("s = {100}").unwrap();
+    assert_eq!(
+        sandbox.execute("list(enumerate(s))").unwrap(),
+        PyValue::List(vec![PyValue::Tuple(vec![
+            PyValue::Int(0),
+            PyValue::Int(100)
+        ]),])
+    );
+
+    // 12. Nested set operations: ({1,2} | {3}) & {1, 3}
+    assert_eq!(
+        sandbox.execute("sorted(({1,2} | {3}) & {1, 3})").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(3)])
+    );
+
+    // 13. set([1, 2, 2, 3]) dedup
+    assert_eq!(
+        sandbox.execute("sorted(set([1, 2, 2, 3]))").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+// ============================================================================
+// Dict key edge cases (non-string keys)
+// ============================================================================
+
+#[test]
+fn test_dict_key_edge_cases() {
+    let mut sandbox = Sandbox::new();
+
+    // 1. dict.get() with int key
+    sandbox.execute("d = {1: 'one', 2: 'two'}").unwrap();
+    assert_eq!(
+        sandbox.execute("d.get(1)").unwrap(),
+        PyValue::Str("one".to_string())
+    );
+    assert_eq!(
+        sandbox.execute("d.get(99, 'missing')").unwrap(),
+        PyValue::Str("missing".to_string())
+    );
+
+    // 2. dict.keys() returns non-string keys
+    assert_eq!(
+        sandbox.execute("sorted(d.keys())").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2)])
+    );
+
+    // 3. dict.items() with int keys → list of tuples
+    assert_eq!(
+        sandbox.execute("sorted(d.items())").unwrap(),
+        PyValue::List(vec![
+            PyValue::Tuple(vec![PyValue::Int(1), PyValue::Str("one".to_string())]),
+            PyValue::Tuple(vec![PyValue::Int(2), PyValue::Str("two".to_string())]),
+        ])
+    );
+
+    // 4. dict.pop() with int key
+    sandbox.execute("d = {1: 'a', 2: 'b'}").unwrap();
+    assert_eq!(
+        sandbox.execute("d.pop(1)").unwrap(),
+        PyValue::Str("a".to_string())
+    );
+    assert_eq!(sandbox.execute("len(d)").unwrap(), PyValue::Int(1));
+
+    // 5. dict.update() with non-string keys
+    sandbox.execute("d = {1: 'a'}").unwrap();
+    sandbox.execute("d.update({2: 'b', 3: 'c'})").unwrap();
+    assert_eq!(sandbox.execute("len(d)").unwrap(), PyValue::Int(3));
+    assert_eq!(
+        sandbox.execute("d[2]").unwrap(),
+        PyValue::Str("b".to_string())
+    );
+
+    // 6. Overwriting with same key: d = {1: 'a'}; d[1] = 'b'
+    sandbox.execute("d = {1: 'a'}").unwrap();
+    sandbox.execute("d[1] = 'b'").unwrap();
+    assert_eq!(
+        sandbox.execute("d[1]").unwrap(),
+        PyValue::Str("b".to_string())
+    );
+    assert_eq!(sandbox.execute("len(d)").unwrap(), PyValue::Int(1));
+
+    // 7. len() on dict with non-string keys
+    assert_eq!(
+        sandbox.execute("len({10: 'x', 20: 'y', 30: 'z'})").unwrap(),
+        PyValue::Int(3)
+    );
+
+    // 8. Iterating over dict with non-string keys (for k in d:)
+    sandbox.execute("d = {1: 'a', 2: 'b'}").unwrap();
+    sandbox
+        .execute("keys = []\nfor k in d:\n    keys.append(k)")
+        .unwrap();
+    assert_eq!(
+        sandbox.execute("sorted(keys)").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2)])
+    );
 }

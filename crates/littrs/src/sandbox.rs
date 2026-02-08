@@ -96,8 +96,8 @@ impl Sandbox {
     /// sandbox.register_tool(info, |args| {
     ///     let city = args.get(0).and_then(|v| v.as_str()).unwrap_or("Unknown");
     ///     PyValue::Dict(vec![
-    ///         ("city".to_string(), PyValue::Str(city.to_string())),
-    ///         ("temp".to_string(), PyValue::Int(22)),
+    ///         (PyValue::Str("city".to_string()), PyValue::Str(city.to_string())),
+    ///         (PyValue::Str("temp".to_string()), PyValue::Int(22)),
     ///     ])
     /// });
     ///

@@ -364,20 +364,40 @@ impl Vm {
                 let items: Vec<PyValue> = self.stack.drain(start..).collect();
                 self.stack.push(PyValue::List(items));
             }
+            Op::BuildTuple(n) => {
+                let start = self.stack.len() - n as usize;
+                let items: Vec<PyValue> = self.stack.drain(start..).collect();
+                self.stack.push(PyValue::Tuple(items));
+            }
+            Op::BuildSet(n) => {
+                let start = self.stack.len() - n as usize;
+                let raw: Vec<PyValue> = self.stack.drain(start..).collect();
+                let mut items = Vec::with_capacity(n as usize);
+                for elem in raw {
+                    if !elem.is_hashable() {
+                        return Err(Error::Runtime(format!(
+                            "TypeError: unhashable type: '{}'",
+                            elem.type_name()
+                        )));
+                    }
+                    if !items.contains(&elem) {
+                        items.push(elem);
+                    }
+                }
+                self.stack.push(PyValue::Set(items));
+            }
             Op::BuildDict(n) => {
                 let start = self.stack.len() - (n as usize * 2);
                 let raw: Vec<PyValue> = self.stack.drain(start..).collect();
                 let mut pairs = Vec::with_capacity(n as usize);
                 for chunk in raw.chunks(2) {
-                    let key = match &chunk[0] {
-                        PyValue::Str(s) => s.clone(),
-                        other => {
-                            return Err(Error::Type {
-                                expected: "str".to_string(),
-                                got: other.type_name().to_string(),
-                            });
-                        }
-                    };
+                    let key = chunk[0].clone();
+                    if !key.is_hashable() {
+                        return Err(Error::Runtime(format!(
+                            "TypeError: unhashable type: '{}'",
+                            key.type_name()
+                        )));
+                    }
                     pairs.push((key, chunk[1].clone()));
                 }
                 self.stack.push(PyValue::Dict(pairs));
@@ -411,10 +431,10 @@ impl Vm {
             Op::UnpackSequence(n) => {
                 let val = self.stack.pop().unwrap_or(PyValue::None);
                 let items = match val {
-                    PyValue::List(items) => items,
+                    PyValue::List(items) | PyValue::Tuple(items) => items,
                     _ => {
                         return Err(Error::Type {
-                            expected: "list".to_string(),
+                            expected: "sequence".to_string(),
                             got: val.type_name().to_string(),
                         });
                     }
@@ -435,7 +455,8 @@ impl Vm {
             Op::GetIter => {
                 let val = self.stack.pop().unwrap_or(PyValue::None);
                 let items = match val {
-                    PyValue::List(items) => items,
+                    PyValue::List(items) | PyValue::Tuple(items) | PyValue::Set(items) => items,
+                    PyValue::Dict(pairs) => pairs.into_iter().map(|(k, _)| k).collect(),
                     PyValue::Str(s) => s.chars().map(|c| PyValue::Str(c.to_string())).collect(),
                     other => {
                         return Err(Error::Type {
@@ -726,6 +747,14 @@ impl Vm {
                     .cloned()
                     .ok_or_else(|| Error::Runtime(format!("list index out of range: {}", idx)))
             }
+            (PyValue::Tuple(items), PyValue::Int(idx)) => {
+                let len = items.len() as i64;
+                let actual = if *idx < 0 { len + idx } else { *idx } as usize;
+                items
+                    .get(actual)
+                    .cloned()
+                    .ok_or_else(|| Error::Runtime(format!("tuple index out of range: {}", idx)))
+            }
             (PyValue::Str(s), PyValue::Int(idx)) => {
                 let len = s.len() as i64;
                 let actual = if *idx < 0 { len + idx } else { *idx } as usize;
@@ -734,11 +763,11 @@ impl Vm {
                     .map(|c| PyValue::Str(c.to_string()))
                     .ok_or_else(|| Error::Runtime(format!("string index out of range: {}", idx)))
             }
-            (PyValue::Dict(pairs), PyValue::Str(key)) => pairs
+            (PyValue::Dict(pairs), key) if key.is_hashable() => pairs
                 .iter()
                 .find(|(k, _)| k == key)
                 .map(|(_, v)| v.clone())
-                .ok_or_else(|| Error::Runtime(format!("KeyError: '{}'", key))),
+                .ok_or_else(|| Error::Runtime(format!("KeyError: {}", key))),
             _ => Err(Error::Type {
                 expected: "subscriptable".to_string(),
                 got: collection.type_name().to_string(),
@@ -754,22 +783,41 @@ impl Vm {
         index: &PyValue,
         value: PyValue,
     ) -> Result<()> {
-        let idx = index.as_int().ok_or_else(|| Error::Type {
-            expected: "int".to_string(),
-            got: index.type_name().to_string(),
-        })?;
-
         let var = self.lookup_var_mut(frames, var_name)?;
 
-        if let PyValue::List(items) = var {
-            let len = items.len() as i64;
-            let actual = if idx < 0 { len + idx } else { idx } as usize;
-            if actual < items.len() {
-                items[actual] = value;
-                return Ok(());
+        match var {
+            PyValue::List(items) => {
+                let idx = index.as_int().ok_or_else(|| Error::Type {
+                    expected: "int".to_string(),
+                    got: index.type_name().to_string(),
+                })?;
+                let len = items.len() as i64;
+                let actual = if idx < 0 { len + idx } else { idx } as usize;
+                if actual < items.len() {
+                    items[actual] = value;
+                    return Ok(());
+                }
+                Err(Error::Runtime("list index out of range".to_string()))
             }
+            PyValue::Dict(pairs) => {
+                if !index.is_hashable() {
+                    return Err(Error::Runtime(format!(
+                        "TypeError: unhashable type: '{}'",
+                        index.type_name()
+                    )));
+                }
+                if let Some(existing) = pairs.iter_mut().find(|(k, _)| k == index) {
+                    existing.1 = value;
+                } else {
+                    pairs.push((index.clone(), value));
+                }
+                Ok(())
+            }
+            PyValue::Tuple(_) => Err(Error::Runtime(
+                "TypeError: 'tuple' object does not support item assignment".to_string(),
+            )),
+            _ => Err(Error::Runtime("Cannot assign to subscript".to_string())),
         }
-        Err(Error::Runtime("Cannot assign to subscript".to_string()))
     }
 
     // -----------------------------------------------------------------------
@@ -807,9 +855,10 @@ impl Vm {
 
         match obj {
             PyValue::List(items) => slice::slice_list(items, lower, upper, step_val),
+            PyValue::Tuple(items) => slice::slice_tuple(items, lower, upper, step_val),
             PyValue::Str(s) => slice::slice_string(s, lower, upper, step_val),
             _ => Err(Error::Type {
-                expected: "list or str".to_string(),
+                expected: "list, tuple, or str".to_string(),
                 got: obj.type_name().to_string(),
             }),
         }
@@ -949,14 +998,18 @@ impl Vm {
                 locals.insert(param.clone(), val.unwrap());
             }
 
-            // Bind *args
+            // Bind *args (tuple in Python)
             if let Some(ref vararg_name) = func.vararg {
-                locals.insert(vararg_name.clone(), PyValue::List(extra_positional));
+                locals.insert(vararg_name.clone(), PyValue::Tuple(extra_positional));
             }
 
             // Bind **kwargs
             if let Some(ref kwarg_name) = func.kwarg {
-                locals.insert(kwarg_name.clone(), PyValue::Dict(extra_kwargs));
+                let kwargs_pairs: Vec<(PyValue, PyValue)> = extra_kwargs
+                    .into_iter()
+                    .map(|(k, v)| (PyValue::Str(k), v))
+                    .collect();
+                locals.insert(kwarg_name.clone(), PyValue::Dict(kwargs_pairs));
             }
 
             let new_frame = CallFrame {
@@ -1058,7 +1111,9 @@ impl Vm {
         let result = match &object {
             PyValue::Str(s) => methods::call_str_method(s, method, args),
             PyValue::List(items) => methods::call_list_method(items, method, args),
+            PyValue::Tuple(items) => methods::call_tuple_method(items, method, args),
             PyValue::Dict(pairs) => methods::call_dict_method(pairs, method, args),
+            PyValue::Set(items) => methods::call_set_method(items, method, args),
             _ => Err(Error::Unsupported(format!(
                 "Method '{}' not supported on type '{}'",
                 method,
@@ -1089,6 +1144,13 @@ impl Vm {
         let result = match var {
             PyValue::List(items) => methods::mutate_list(items, method, args),
             PyValue::Dict(pairs) => methods::mutate_dict(pairs, method, args),
+            PyValue::Set(items) => methods::mutate_set(items, method, args),
+            PyValue::Tuple(_) => {
+                return Err(Error::Runtime(format!(
+                    "TypeError: 'tuple' object has no attribute '{}'",
+                    method
+                )));
+            }
             _ => Err(Error::Unsupported(format!(
                 "Mutating method '{}' not supported on type '{}'",
                 method,
@@ -1147,7 +1209,9 @@ impl Vm {
             "float" => matches!(value, PyValue::Float(_) | PyValue::Int(_)),
             "bool" => matches!(value, PyValue::Bool(_)),
             "list" => matches!(value, PyValue::List(_)),
+            "tuple" => matches!(value, PyValue::Tuple(_)),
             "dict" => matches!(value, PyValue::Dict(_)),
+            "set" => matches!(value, PyValue::Set(_)),
             "number" => matches!(value, PyValue::Int(_) | PyValue::Float(_)),
             _ => true,
         };

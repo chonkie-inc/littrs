@@ -63,8 +63,11 @@ fn test_tool_with_dict_result() {
         .register_fn("get_user", |args| {
             let id = args.get(0).and_then(|v| v.as_int()).unwrap_or(0);
             PyValue::Dict(vec![
-                ("id".to_string(), PyValue::Int(id)),
-                ("name".to_string(), PyValue::Str("Test User".to_string())),
+                (PyValue::Str("id".to_string()), PyValue::Int(id)),
+                (
+                    PyValue::Str("name".to_string()),
+                    PyValue::Str("Test User".to_string()),
+                ),
             ])
         })
         .unwrap();

@@ -17,8 +17,8 @@
 //! #[tool]
 //! fn fetch_weather(city: String, unit: Option<String>) -> PyValue {
 //!     PyValue::Dict(vec![
-//!         ("city".to_string(), PyValue::Str(city)),
-//!         ("temp".to_string(), PyValue::Int(22)),
+//!         (PyValue::Str("city".to_string()), PyValue::Str(city)),
+//!         (PyValue::Str("temp".to_string()), PyValue::Int(22)),
 //!     ])
 //! }
 //!
@@ -377,7 +377,7 @@ pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
                     Err(e) => {
                         // Return error as a dict with error info
                         littrs::PyValue::Dict(vec![
-                            ("error".to_string(), littrs::PyValue::Str(e.to_string())),
+                            (littrs::PyValue::Str("error".to_string()), littrs::PyValue::Str(e.to_string())),
                         ])
                     }
                 }
