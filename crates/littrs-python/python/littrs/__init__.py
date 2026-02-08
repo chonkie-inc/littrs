@@ -31,6 +31,10 @@ class Sandbox:
         # to the Rust sandbox.
         return getattr(self._inner, name)
 
+    def __call__(self, code: str):
+        """Allow sandbox(code) as shorthand for sandbox.run(code)."""
+        return self._inner.run(code)
+
     def __setitem__(self, name: str, value):
         """Allow sandbox["x"] = val as shorthand for sandbox.set("x", val)."""
         self._inner.set(name, value)
