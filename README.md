@@ -253,11 +253,15 @@ Littrs is designed for one specific use case: **running code written by AI agent
 | Sandboxing services | strict (managed) | ~1000ms | no (API call) | service-managed | API-based | service-managed | API keys + network |
 | `exec()` / subprocess | **none** | ~0.1ms | Python only | none | none | no | none |
 
+*Comparison table adapted from [Monty](https://github.com/pydantic/monty).*
+
 **Why Littrs over Docker/services?** Zero infrastructure. No daemon, no containers, no network calls, no API keys. Just a library you import. Ideal for edge deployments, embedded systems, or anywhere you can't run Docker.
 
 **Why Littrs over `exec()`?** Security. `exec()` gives LLM-generated code full access to your filesystem, network, and environment. Littrs gives it access to nothing except the tools you explicitly register.
 
 **Why Littrs over Pyodide?** Startup speed and server-side safety. Pyodide takes seconds to cold-start and wasn't designed for server-side isolation — Python code can escape into the JS runtime.
+
+**Why Littrs over Monty?** Developer experience. Littrs provides a cleaner API — `@sandbox.tool` to register a function, `sandbox(code)` to run it, `sandbox["x"] = val` to inject variables. No boilerplate, no separate input/output declarations, no configuration objects. It also includes built-in WASM isolation for stronger sandboxing when you need it.
 
 ## Citation
 
