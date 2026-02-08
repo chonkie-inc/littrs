@@ -230,16 +230,6 @@ sandbox.register_fn("fetch_data", |args| {
 });
 ```
 
-## Architecture
-
-Littrs uses a two-phase execution model:
-
-1. **Compiler** (AST &rarr; bytecode): Parses Python source into an AST using Ruff's `ruff_python_parser`, then compiles it into a compact bytecode representation (`CodeObject` with ~35 opcodes). Only the compiler depends on the parser crate.
-
-2. **VM** (bytecode &rarr; result): A stack-based virtual machine executes the bytecode. It maintains a value stack, call frames with locals, an exception stack, and global variables that persist across `run()` calls.
-
-This separation means parsing and compilation happen once, and the VM is a tight instruction dispatch loop. Exception handling uses a static exception table (same approach as CPython 3.11+) rather than runtime-generated exception frames.
-
 ## Alternatives
 
 Littrs is designed for one specific use case: **running code written by AI agents safely and cheaply**. It trades language completeness for simplicity, speed, embeddability, and zero infrastructure requirements.
