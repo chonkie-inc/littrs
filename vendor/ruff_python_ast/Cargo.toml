@@ -1,0 +1,32 @@
+[package]
+name = "littrs-ruff-python-ast"
+version = "0.5.2"
+edition = "2024"
+license = "MIT"
+description = "Vendored ruff_python_ast for littrs (from github.com/astral-sh/ruff)"
+repository = "https://github.com/chonkie-inc/littrs"
+
+[lib]
+name = "ruff_python_ast"
+
+[dependencies]
+littrs-ruff-python-trivia = { version = "0.5.2", path = "../ruff_python_trivia" }
+littrs-ruff-source-file = { version = "0.5.2", path = "../ruff_source_file" }
+littrs-ruff-text-size = { version = "0.5.2", path = "../ruff_text_size" }
+
+aho-corasick = "1"
+bitflags = "2"
+compact_str = "0.9"
+get-size2 = { version = "0.7", optional = true, features = ["derive", "compact-str"] }
+is-macro = "0.3"
+memchr = "2"
+rustc-hash = "2"
+schemars = { version = "0.8", optional = true }
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+thiserror = "2"
+
+[features]
+schemars = ["dep:schemars", "dep:serde_json"]
+serde = ["dep:serde", "littrs-ruff-text-size/serde", "compact_str/serde"]
+get-size = ["dep:get-size2", "littrs-ruff-text-size/get-size"]

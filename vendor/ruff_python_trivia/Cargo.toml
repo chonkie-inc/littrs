@@ -1,0 +1,17 @@
+[package]
+name = "littrs-ruff-python-trivia"
+version = "0.5.2"
+edition = "2024"
+license = "MIT"
+description = "Vendored ruff_python_trivia for littrs (from github.com/astral-sh/ruff)"
+repository = "https://github.com/chonkie-inc/littrs"
+
+[lib]
+name = "ruff_python_trivia"
+
+[dependencies]
+littrs-ruff-source-file = { version = "0.5.2", path = "../ruff_source_file" }
+littrs-ruff-text-size = { version = "0.5.2", path = "../ruff_text_size" }
+
+itertools = "0.14"
+unicode-ident = "1"

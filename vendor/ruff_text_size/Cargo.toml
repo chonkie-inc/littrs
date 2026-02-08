@@ -1,0 +1,19 @@
+[package]
+name = "littrs-ruff-text-size"
+version = "0.5.2"
+edition = "2024"
+license = "MIT"
+description = "Vendored ruff_text_size for littrs (from github.com/astral-sh/ruff)"
+repository = "https://github.com/chonkie-inc/littrs"
+
+[lib]
+name = "ruff_text_size"
+
+[dependencies]
+get-size2 = { version = "0.7", optional = true, features = ["derive", "compact-str"] }
+schemars = { version = "0.8", optional = true }
+serde = { version = "1", optional = true }
+
+[features]
+serde = ["dep:serde"]
+get-size = ["dep:get-size2"]

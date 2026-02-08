@@ -5,6 +5,11 @@ members = [
     "crates/littrs-macros",
     "crates/littrs-wasm",
     "crates/littrs-python",
+    "vendor/ruff_text_size",
+    "vendor/ruff_source_file",
+    "vendor/ruff_python_trivia",
+    "vendor/ruff_python_ast",
+    "vendor/ruff_python_parser",
 ]
 
 # Exclude special-target crates from default build
@@ -27,10 +32,10 @@ littrs = { version = "0.5.2", path = "crates/littrs" }
 littrs-macros = { version = "0.5.2", path = "crates/littrs-macros" }
 littrs-wasm = { version = "0.5.2", path = "crates/littrs-wasm" }
 
-# External dependencies
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", branch = "main" }
+# Vendored ruff crates (from github.com/astral-sh/ruff, commit 56eb6b62)
+ruff_python_parser = { version = "0.5.2", path = "vendor/ruff_python_parser", package = "littrs-ruff-python-parser" }
+ruff_python_ast = { version = "0.5.2", path = "vendor/ruff_python_ast", package = "littrs-ruff-python-ast" }
+ruff_text_size = { version = "0.5.2", path = "vendor/ruff_text_size", package = "littrs-ruff-text-size" }
 thiserror = "2"
 wasmtime = "40"
 wasmtime-wasi = "40"

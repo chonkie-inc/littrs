@@ -29,11 +29,48 @@ jobs:
         run: cp target/wasm32-wasip1/release/littrs_wasm.wasm crates/littrs/wasm/sandbox.wasm
 
       # Publish in dependency order (continue on error if already published)
+      # 1. Vendored ruff crates (leaf → root)
+      - name: Publish littrs-ruff-text-size
+        run: cargo publish -p littrs-ruff-text-size --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish littrs-ruff-source-file
+        run: cargo publish -p littrs-ruff-source-file --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish littrs-ruff-python-trivia
+        run: cargo publish -p littrs-ruff-python-trivia --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish littrs-ruff-python-ast
+        run: cargo publish -p littrs-ruff-python-ast --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      - name: Publish littrs-ruff-python-parser
+        run: cargo publish -p littrs-ruff-python-parser --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
+        continue-on-error: true
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # 2. Littrs crates
       - name: Publish littrs-macros
         run: cargo publish -p littrs-macros --token ${{ secrets.CARGO_REGISTRY_TOKEN }} || echo "Already published or failed"
         continue-on-error: true
 
-      - name: Wait for crates.io
+      - name: Wait for crates.io index
         run: sleep 30
 
       - name: Publish littrs
