@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "littrs"
 version = "0.5.1"
-description = "A minimal, secure Python sandbox for AI agents"
+description = "A lightweight, embeddable Python sandbox for LLM tool execution"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"

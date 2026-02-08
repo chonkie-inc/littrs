@@ -4,7 +4,7 @@
 
 # Littrs
 
-### A minimal, secure Python sandbox written in Rust for use by AI agents.
+### A lightweight, embeddable Python sandbox for LLM tool execution.
 
 [![Crates.io](https://img.shields.io/crates/v/littrs.svg)](https://crates.io/crates/littrs)
 [![PyPI version](https://img.shields.io/pypi/v/littrs.svg)](https://pypi.org/project/littrs/)
@@ -16,39 +16,29 @@
 
 ---
 
-A minimal, secure Python sandbox written in Rust for use by AI agents.
+Littrs is a Python sandbox that you embed directly into your Rust or Python application. There's no container to start, no runtime to boot, no network call to make — just a library that executes LLM-generated Python safely, with only the tools you give it.
 
-Littrs avoids the cost, latency, and complexity of using full container-based sandboxes for running LLM-generated code. Instead, it lets you safely run Python code written by an LLM embedded directly in your agent, with startup times measured in milliseconds and zero external dependencies.
+It was built for a specific workflow: an LLM writes Python code that calls your functions, and you need to run that code without giving it access to anything else. Littrs compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities. The only way sandboxed code can interact with the outside world is through tools you explicitly register.
 
-The core idea is simple: LLMs work faster, cheaper, and more reliably when they write Python code instead of relying on traditional structured tool calling. Littrs makes that possible without spinning up containers or risking arbitrary code execution on the host. You register Rust (or Python) functions as callable tools, hand the sandbox some LLM-generated code, and get back a result — safely.
+Inspired by [Monty](https://github.com/pydantic/monty) from Pydantic and the broader trend toward [programmatic tool calling](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling), where LLMs write code instead of making structured tool calls.
 
-For motivation on why you might want to do this, see:
-* [Programmatic Tool Calling](https://platform.claude.com/docs/en/agents-and-tools/tool-use/programmatic-tool-calling) from Anthropic
-* [Code Execution with MCP](https://www.anthropic.com/engineering/code-execution-with-mcp) from Anthropic
-* [Codemode](https://blog.cloudflare.com/code-mode/) from Cloudflare
-* [Smol Agents](https://github.com/huggingface/smolagents) from Hugging Face
+## Features
 
-## What Littrs can do
+* **Stateful sandbox with tool registration** — register Python or Rust functions as tools via `@sandbox.tool` / `#[tool]`, inject variables, and run multiple code snippets against the same state
+* **Zero ambient capabilities** — no filesystem, no network, no env vars, no `import`. Sandboxed code can only call tools you register
+* **Resource limits** — cap bytecode instructions and recursion depth per `run()` call. Limits are enforced at the VM level and cannot be caught by `try`/`except`
+* **Stdout capture** — `print()` output is collected and returned separately from the result
+* **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings from registered tools, ready to paste into a system prompt
+* **Rust and Python APIs** — native Rust with PyO3 bindings. Optional WASM isolation via an embedded wasmtime guest module
+* **Fast startup** — no interpreter boot. Create a sandbox, register tools, run code
 
-* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), lambdas, list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
-* **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
-* **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Rust or Python
-* **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
-* **Capture stdout** — `print()` output is collected and returned to the caller
-* **Be called from Rust or Python** — native Rust API with PyO3 bindings for Python. A WASM guest module is also available for stronger isolation
-* **Generate tool documentation for LLMs** — auto-generate Python-style function signatures and docstrings from registered tools, suitable for embedding in system prompts
-* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, run code
+## Limitations
 
-## What Littrs cannot do
-
-* Use the standard library — there is no `import`. No `os`, `sys`, `json`, `re`, or anything else
-* Use third-party libraries — no `pip install`, no `numpy`, no `requests`
-* Define classes — `class` definitions are not supported
-* Use async/await — no coroutines, no `asyncio`
-* Use closures (functions cannot capture variables from enclosing scopes)
-* Use `finally` blocks — only `try`/`except`/`else`
-* Use `match` statements
-* Snapshot/resume execution state — execution runs to completion in a single call
+* No standard library — there is no `import`
+* No third-party packages
+* No classes, closures, `async`/`await`, `finally`, or `match`
+* No snapshotting — execution runs to completion in a single call
+* See the [ROADMAP](ROADMAP.md) for what's planned
 
 ## Installation
 

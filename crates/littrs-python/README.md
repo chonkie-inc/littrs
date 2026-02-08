@@ -4,7 +4,7 @@
 
 # Littrs
 
-### A minimal, secure Python sandbox written in Rust for use by AI agents.
+### A lightweight, embeddable Python sandbox for LLM tool execution.
 
 [![PyPI version](https://img.shields.io/pypi/v/littrs.svg)](https://pypi.org/project/littrs/)
 [![Crates.io](https://img.shields.io/crates/v/littrs.svg)](https://crates.io/crates/littrs)
@@ -16,11 +16,9 @@
 
 ---
 
-A minimal, secure Python sandbox written in Rust for use by AI agents.
+Littrs is a Python sandbox that you embed directly into your Rust or Python application. There's no container to start, no runtime to boot, no network call to make — just a library that executes LLM-generated Python safely, with only the tools you give it.
 
-Littrs avoids the cost, latency, and complexity of using full container-based sandboxes for running LLM-generated code. Instead, it lets you safely run Python code written by an LLM embedded directly in your agent, with startup times measured in milliseconds and zero external dependencies.
-
-The core idea is simple: LLMs work faster, cheaper, and more reliably when they write Python code instead of relying on traditional structured tool calling. Littrs makes that possible without spinning up containers or risking arbitrary code execution on the host. You register Python functions as callable tools, hand the sandbox some LLM-generated code, and get back a result — safely.
+It was built for a specific workflow: an LLM writes Python code that calls your functions, and you need to run that code without giving it access to anything else. Littrs compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities. The only way sandboxed code can interact with the outside world is through tools you explicitly register.
 
 ## Installation
 
@@ -118,25 +116,21 @@ result = sandbox.run("sum(range(100))")
 assert result == 4950
 ```
 
-## What Littrs Can Do
+## Features
 
-* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), lambdas, list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
-* **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
-* **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Python
-* **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
-* **Capture stdout** — `print()` output is collected and returned to the caller
-* **Start up fast** — no interpreter boot, no WASM runtime to load (unless you want it). Create a `Sandbox`, register tools, run code
+* **Stateful sandbox with tool registration** — register Python functions as tools via `@sandbox.tool`, inject variables, and run multiple code snippets against the same state
+* **Zero ambient capabilities** — no filesystem, no network, no env vars, no `import`. Sandboxed code can only call tools you register
+* **Resource limits** — cap bytecode instructions and recursion depth per `run()` call. Limits are enforced at the VM level and cannot be caught by `try`/`except`
+* **Stdout capture** — `print()` output is collected and returned separately from the result
+* **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings from registered tools, ready to paste into a system prompt
+* **Fast startup** — no interpreter boot. Create a sandbox, register tools, run code
 
-## What Littrs Cannot Do
+## Limitations
 
-* Use the standard library — there is no `import`. No `os`, `sys`, `json`, `re`, or anything else
-* Use third-party libraries — no `pip install`, no `numpy`, no `requests`
-* Define classes — `class` definitions are not supported
-* Use async/await — no coroutines, no `asyncio`
-* Use closures (functions cannot capture variables from enclosing scopes)
-* Use `finally` blocks — only `try`/`except`/`else`
-* Use `match` statements
-* Snapshot/resume execution state — execution runs to completion in a single call
+* No standard library — there is no `import`
+* No third-party packages
+* No classes, closures, `async`/`await`, `finally`, or `match`
+* No snapshotting — execution runs to completion in a single call
 
 ## Supported Python Features
 

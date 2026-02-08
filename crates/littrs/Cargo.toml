@@ -1,6 +1,6 @@
 [package]
 name = "littrs"
-description = "A minimal, secure Python sandbox for AI agents"
+description = "A lightweight, embeddable Python sandbox for LLM tool execution"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
