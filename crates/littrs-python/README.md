@@ -35,36 +35,23 @@ from littrs import Sandbox
 
 sandbox = Sandbox()
 
-# Execute Python code
-result = sandbox.run("2 + 2")
-assert result == 4
+@sandbox.tool
+def get_weather(city: str, units: str = "celsius") -> dict:
+    """Get current weather for a city."""
+    return {"city": city, "temp": 22, "units": units}
 
-# Variables persist across calls
-sandbox.run("x = 10")
-sandbox.run("y = 20")
-result = sandbox.run("x + y")
-assert result == 30
+result = sandbox("get_weather('London')")
+# result == {"city": "London", "temp": 22, "units": "celsius"}
 ```
 
-## Registering Tools
+The `@sandbox.tool` decorator registers your function with its full signature — the LLM code calls it like a normal Python function. The sandbox is also callable: `sandbox(code)` is shorthand for `sandbox.run(code)`.
 
-Register Python functions that LLM-generated code can call. The sandbox code calls them like normal Python functions, and you handle them on the host side.
+Variables persist across calls, and you can inject values directly:
 
 ```python
-from littrs import Sandbox
-
-def fetch_data(args):
-    id = args[0] if args else 0
-    return {"id": id, "name": "Example"}
-
-sandbox = Sandbox()
-sandbox.register("fetch_data", fetch_data)
-
-result = sandbox.run("""
-data = fetch_data(42)
-data["name"]
-""")
-assert result == "Example"
+sandbox["user_id"] = 42
+sandbox("name = get_weather('London')['city']")
+sandbox("name")  # "London"
 ```
 
 ## Resource Limits
@@ -72,10 +59,8 @@ assert result == "Example"
 Prevent runaway code from consuming unbounded resources:
 
 ```python
-sandbox = Sandbox()
 sandbox.limit(max_instructions=10_000, max_recursion_depth=50)
 
-# This will raise an error, not hang forever
 try:
     sandbox.run("while True: pass")
 except RuntimeError as e:
@@ -86,39 +71,47 @@ Resource limit errors are **uncatchable** — `try`/`except` in the sandbox code
 
 ## Capturing Print Output
 
+`capture()` returns both the result and everything that was `print()`-ed:
+
 ```python
 result, printed = sandbox.capture("""
 for i in range(5):
     print(i)
 "done"
 """)
+# result  == "done"
 # printed == ["0", "1", "2", "3", "4"]
-# result == "done"
 ```
 
-## Setting Variables
+## Tool Documentation for LLM Prompts
 
-Inject values into the sandbox from the host:
+`describe()` auto-generates Python-style signatures and docstrings from registered tools, ready to embed in a system prompt:
 
 ```python
-sandbox = Sandbox()
-sandbox.set("config", {"model": "claude", "temperature": 0.7})
+print(sandbox.describe())
+# def get_weather(city: str, units: str = 'celsius') -> dict:
+#     """Get current weather for a city."""
+```
 
-result = sandbox.run('config["model"]')
-assert result == "claude"
+## Low-level Registration
+
+If you need to bypass the decorator (e.g. registering a function that takes raw positional args):
+
+```python
+def fetch_data(args):
+    return {"id": args[0], "name": "Example"}
+
+sandbox.register("fetch_data", fetch_data)
 ```
 
 ## WASM Sandbox (Stronger Isolation)
 
-For use cases requiring stronger isolation guarantees, Littrs includes a WASM-based sandbox that runs the interpreter inside a WebAssembly guest module. This provides memory isolation and fuel-based computation limits at the WASM level:
+For stronger isolation, Littrs can run the interpreter inside a WebAssembly guest module with memory isolation and fuel-based computation limits:
 
 ```python
 from littrs import WasmSandbox, WasmSandboxConfig
 
-config = WasmSandboxConfig() \
-    .with_fuel(1_000_000) \
-    .with_max_memory(32 * 1024 * 1024)  # 32MB
-
+config = WasmSandboxConfig().with_fuel(1_000_000).with_max_memory(32 * 1024 * 1024)
 sandbox = WasmSandbox(config)
 
 result = sandbox.run("sum(range(100))")
@@ -127,7 +120,7 @@ assert result == 4950
 
 ## What Littrs Can Do
 
-* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
+* **Run a reasonable subset of Python** — variables, control flow, functions (with defaults, `*args`, `**kwargs`), lambdas, list comprehensions, f-strings, try/except, and all the built-in types an LLM needs
 * **Completely block access to the host environment** — no filesystem, no network, no environment variables, no `import`, no standard library. The sandbox has zero ambient capabilities
 * **Call functions on the host** — only functions you explicitly register as tools. The LLM code calls them like normal Python functions, and you handle them in Python
 * **Control resource usage** — set instruction limits and recursion depth limits per run call. Resource limit violations are uncatchable (they bypass `try`/`except`)
@@ -140,6 +133,7 @@ assert result == 4950
 * Use third-party libraries — no `pip install`, no `numpy`, no `requests`
 * Define classes — `class` definitions are not supported
 * Use async/await — no coroutines, no `asyncio`
+* Use closures (functions cannot capture variables from enclosing scopes)
 * Use `finally` blocks — only `try`/`except`/`else`
 * Use `match` statements
 * Snapshot/resume execution state — execution runs to completion in a single call
@@ -148,7 +142,7 @@ assert result == 4950
 
 ### Types
 
-`None`, `bool`, `int`, `float`, `str`, `list`, `dict` (string keys)
+`None`, `bool`, `int`, `float`, `str`, `list`, `tuple`, `dict`, `set`
 
 ### Operators
 
@@ -171,6 +165,7 @@ assert result == 4950
 ### Functions
 
 - `def` with positional parameters, default values, `*args`, `**kwargs`
+- `lambda` expressions: `lambda x, y: x + y`
 - Keyword arguments at call sites: `f(x=1, y=2)`
 - Recursive and nested function definitions
 - Implicit `return None` for functions without a return statement
@@ -191,11 +186,11 @@ f"hello {name}!"  # "hello world!"
 
 ### String Methods
 
-`.upper()`, `.lower()`, `.strip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.format()`
+`.upper()`, `.lower()`, `.strip()`, `.lstrip()`, `.rstrip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.title()`, `.capitalize()`, `.isdigit()`, `.isalpha()`, `.isalnum()`
 
-### List/Dict Methods
+### List/Dict/Set Methods
 
-`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`
+`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`
 
 ### Slicing
 

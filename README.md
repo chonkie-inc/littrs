@@ -67,36 +67,123 @@ pip install littrs
 
 ## Usage
 
-Littrs can be called from Rust or Python.
+Littrs can be called from Rust or Python. See the [ROADMAP](ROADMAP.md) for planned features.
+
+### Python
+
+```python
+from littrs import Sandbox
+
+sandbox = Sandbox()
+
+@sandbox.tool
+def get_weather(city: str, units: str = "celsius") -> dict:
+    """Get current weather for a city."""
+    return {"city": city, "temp": 22, "units": units}
+
+result = sandbox("get_weather('London')")
+# result == {"city": "London", "temp": 22, "units": "celsius"}
+```
+
+The `@sandbox.tool` decorator registers your function with its full signature — the LLM code calls it like a normal Python function. The sandbox is also callable: `sandbox(code)` is shorthand for `sandbox.run(code)`.
+
+Variables persist across calls, and you can inject values directly:
+
+```python
+sandbox["user_id"] = 42
+sandbox("name = get_weather('London')['city']")
+sandbox("name")  # "London"
+```
+
+#### Resource Limits
+
+```python
+sandbox.limit(max_instructions=10_000, max_recursion_depth=50)
+
+try:
+    sandbox.run("while True: pass")
+except RuntimeError as e:
+    print(e)  # "Instruction limit exceeded (limit: 10000)"
+```
+
+Resource limit errors are **uncatchable** — `try`/`except` in the sandbox code cannot suppress them.
+
+#### Capturing Print Output
+
+`capture()` returns both the result and everything that was `print()`-ed:
+
+```python
+result, printed = sandbox.capture("""
+for i in range(5):
+    print(i)
+"done"
+""")
+# result  == "done"
+# printed == ["0", "1", "2", "3", "4"]
+```
+
+#### Tool Documentation for LLM Prompts
+
+`describe()` auto-generates Python-style signatures and docstrings from registered tools, ready to embed in a system prompt:
+
+```python
+print(sandbox.describe())
+# def get_weather(city: str, units: str = 'celsius') -> dict:
+#     """Get current weather for a city."""
+```
+
+#### Low-level Registration
+
+If you need to bypass the decorator (e.g. registering a function that takes raw positional args):
+
+```python
+def fetch_data(args):
+    return {"id": args[0], "name": "Example"}
+
+sandbox.register("fetch_data", fetch_data)
+```
+
+#### WASM Sandbox (Stronger Isolation)
+
+For stronger isolation, Littrs can run the interpreter inside a WebAssembly guest module with memory isolation and fuel-based computation limits:
+
+```python
+from littrs import WasmSandbox, WasmSandboxConfig
+
+config = WasmSandboxConfig().with_fuel(1_000_000).with_max_memory(32 * 1024 * 1024)
+sandbox = WasmSandbox(config)
+
+result = sandbox.run("sum(range(100))")
+assert result == 4950
+```
 
 ### Rust
 
-The core API is the `Sandbox`. Create one, optionally register tools, and call `run()`. See the [ROADMAP](ROADMAP.md) for planned features.
+The `#[tool]` macro is the easiest way to register tools. Write a normal function with doc comments, and the macro generates everything needed for registration and LLM documentation:
 
 ```rust
-use littrs::{Sandbox, PyValue};
+use littrs::Sandbox;
+use littrs_macros::tool;
+
+/// Get current weather for a city.
+///
+/// Args:
+///     city: The city name
+///     units: Temperature units (C or F)
+#[tool]
+fn get_weather(city: String, units: Option<String>) -> String {
+    format!("{}: 22°{}", city, units.unwrap_or("C".into()))
+}
 
 let mut sandbox = Sandbox::new();
+sandbox.add(get_weather::Tool);
 
-// Register a tool that the LLM code can call
-sandbox.register_fn("fetch_data", |args| {
-    let id = args[0].as_int().unwrap_or(0);
-    PyValue::Dict(vec![
-        (PyValue::Str("id".to_string()), PyValue::Int(id)),
-        (PyValue::Str("name".to_string()), PyValue::Str("Example".to_string())),
-    ])
-});
-
-// Execute LLM-generated code
-let result = sandbox.run(r#"
-data = fetch_data(42)
-data["name"]
-"#).unwrap();
-
-assert_eq!(result, PyValue::Str("Example".to_string()));
+let result = sandbox.run(r#"get_weather("London")"#).unwrap();
 ```
 
-Variables persist across `run()` calls on the same sandbox:
+The `#[tool]` macro handles type conversion from `PyValue` automatically. `sandbox.add()` registers the tool with its full metadata.
+
+Variables persist across `run()` calls:
 
 ```rust
 sandbox.run("x = 10").unwrap();
@@ -107,18 +194,15 @@ assert_eq!(result, PyValue::Int(30));
 
 #### Resource Limits
 
-Prevent runaway code from consuming unbounded resources:
-
 ```rust
 use littrs::{Sandbox, Limits};
 
 let mut sandbox = Sandbox::new();
 sandbox.limit(Limits {
-    max_instructions: Some(10_000),   // cap bytecode instructions per run() call
-    max_recursion_depth: Some(50),    // cap call-stack depth
+    max_instructions: Some(10_000),
+    max_recursion_depth: Some(50),
 });
 
-// This will return an error, not hang forever
 let err = sandbox.run("while True: pass").unwrap_err();
 assert!(err.to_string().contains("Instruction limit"));
 ```
@@ -127,31 +211,12 @@ Resource limit errors are **uncatchable** — `try`/`except` in the sandbox code
 
 #### Tool Documentation
 
-Generate Python-style docs for all registered tools, suitable for including in an LLM's system prompt:
+`describe()` auto-generates Python-style docs for all registered tools, suitable for embedding in an LLM system prompt:
 
 ```rust
-use littrs::{Sandbox, ToolInfo, PyValue};
-
-let mut sandbox = Sandbox::new();
-
-sandbox.register_tool(
-    ToolInfo::new("get_weather", "Get the current weather for a city")
-        .arg("city", "str", "The city name")
-        .arg_opt("units", "str", "Temperature units (C or F)")
-        .returns("dict"),
-    |args| {
-        let city = args[0].as_str().unwrap_or("Unknown");
-        PyValue::Dict(vec![
-            (PyValue::Str("city".to_string()), PyValue::Str(city.to_string())),
-            (PyValue::Str("temp".to_string()), PyValue::Int(22)),
-        ])
-    },
-);
-
 let docs = sandbox.describe();
-// Produces:
-// def get_weather(city: str, units: str = None) -> dict:
-//     """Get the current weather for a city"""
+// def get_weather(city: str, units?: str) -> str:
+//     """Get current weather for a city."""
 ```
 
 #### Capturing Print Output
@@ -168,65 +233,22 @@ assert_eq!(output.output, vec!["0", "1", "2", "3", "4"]);
 assert_eq!(output.value, PyValue::Str("done".to_string()));
 ```
 
-### Python
+#### Low-level Registration
 
-The Python API mirrors the Rust API:
+For cases where the `#[tool]` macro isn't suitable, you can register closures directly:
 
-```python
-from littrs import Sandbox
+```rust
+use littrs::{Sandbox, PyValue};
 
-sandbox = Sandbox()
+let mut sandbox = Sandbox::new();
 
-# Register a tool
-def fetch_data(args):
-    return {"id": args[0], "name": "Example"}
-
-sandbox.register("fetch_data", fetch_data)
-
-# Execute LLM-generated code
-result = sandbox.run("""
-data = fetch_data(42)
-data["name"]
-""")
-assert result == "Example"
-```
-
-#### Resource Limits
-
-```python
-sandbox = Sandbox()
-sandbox.limit(max_instructions=10_000, max_recursion_depth=50)
-
-try:
-    sandbox.run("while True: pass")
-except RuntimeError as e:
-    print(e)  # "Instruction limit exceeded (limit: 10000)"
-```
-
-#### Capturing Print Output
-
-```python
-result, printed = sandbox.capture("""
-for i in range(5):
-    print(i)
-"done"
-""")
-# printed == ["0", "1", "2", "3", "4"]
-# result == "done"
-```
-
-#### WASM Sandbox (Stronger Isolation)
-
-For use cases requiring stronger isolation guarantees, Littrs includes a WASM-based sandbox that runs the interpreter inside a WebAssembly guest module. This provides memory isolation and fuel-based computation limits at the WASM level:
-
-```python
-from littrs import WasmSandbox, WasmSandboxConfig
-
-config = WasmSandboxConfig().with_fuel(1_000_000).with_max_memory(32 * 1024 * 1024)
-sandbox = WasmSandbox(config)
-
-result = sandbox.run("sum(range(100))")
-assert result == 4950
+sandbox.register_fn("fetch_data", |args| {
+    let id = args[0].as_int().unwrap_or(0);
+    PyValue::Dict(vec![
+        (PyValue::Str("id".to_string()), PyValue::Int(id)),
+        (PyValue::Str("name".to_string()), PyValue::Str("Example".to_string())),
+    ])
+});
 ```
 
 ## Supported Python Features
