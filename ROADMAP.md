@@ -190,6 +190,22 @@ Python f-strings support `!s` (str), `!r` (repr), and `!a` (ascii) conversion fl
 
 ---
 
+## ~~Virtual Filesystem~~ ✅
+
+- [x] `sandbox.mount(virtual_path, host_path, writable)` — mount host files into the sandbox
+- [x] `open(path)` / `open(path, "w")` builtin — read/write mounted files
+- [x] File methods: `.read()`, `.readline()`, `.readlines()`, `.write(s)`, `.close()`
+- [x] Write-through: writes persist to host path on `.write()` and `.close()`
+- [x] `sandbox.files()` — inspect current writable file contents from the host
+- [x] `FileNotFoundError` for unmounted paths, `PermissionError` for read-only writes
+- [x] `UnsupportedOperation` for mode mismatches, `ValueError` for closed files
+- [x] All file errors catchable with `try`/`except`
+- [ ] Context manager support: `with open("f") as f:` (depends on `with` statement)
+- [ ] `"a"` (append) mode
+- [ ] `"r+"` / `"w+"` (read-write) modes
+
+---
+
 ## Low Priority
 
 These features are rarely needed in a sandbox context but are listed for completeness.
@@ -213,10 +229,6 @@ Full class support would be a major undertaking and is explicitly out of scope f
 ### `async`/`await`
 
 Coroutines and asynchronous execution. Out of scope — the sandbox runs synchronously to completion.
-
-### `import` and standard library
-
-Intentionally excluded. The sandbox has zero ambient capabilities by design. Any functionality the sandbox needs should be registered as tools by the host.
 
 ### Walrus operator (`:=`)
 
