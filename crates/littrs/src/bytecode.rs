@@ -233,6 +233,13 @@ pub enum Op {
     /// modify the variable in place rather than operating on a cloned value.
     CallMutMethod(u32, u32, u32),
 
+    /// Call a mutating method on a named variable with keyword arguments.
+    ///
+    /// Stack layout: `[pos_args..., kw_name0, kw_val0, kw_name1, kw_val1, ...]`.
+    /// `n_pos` positional args + `n_kw` keyword pairs (2 values each).
+    /// Used for `list.sort(key=..., reverse=...)`.
+    CallMutMethodKw(u32, u32, u32, u32),
+
     /// Call a callable value on the stack with positional arguments.
     ///
     /// Stack layout: `[callable, arg0, arg1, ...]`. Pops `n_args` arguments

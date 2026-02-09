@@ -6,6 +6,9 @@
 //! - I/O: print
 //! - Math: abs
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use crate::error::{Error, Result};
 use crate::operators::compare_values;
 use crate::value::PyValue;
@@ -59,6 +62,13 @@ pub fn try_builtin(
         "type" => BuiltinResult::Handled(builtin_type(args)),
         "tuple" => BuiltinResult::Handled(builtin_tuple(args)),
         "set" => BuiltinResult::Handled(builtin_set(args)),
+        "repr" => BuiltinResult::Handled(builtin_repr(args)),
+        "bin" => BuiltinResult::Handled(builtin_bin(args)),
+        "hex" => BuiltinResult::Handled(builtin_hex(args)),
+        "oct" => BuiltinResult::Handled(builtin_oct(args)),
+        "divmod" => BuiltinResult::Handled(builtin_divmod(args)),
+        "pow" => BuiltinResult::Handled(builtin_pow(args)),
+        "hash" => BuiltinResult::Handled(builtin_hash(args)),
         _ => BuiltinResult::NotBuiltin,
     }
 }
@@ -499,4 +509,227 @@ fn builtin_set(args: Vec<PyValue>) -> Result<PyValue> {
         }
     }
     Ok(PyValue::Set(items))
+}
+
+fn builtin_repr(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 1 {
+        return Err(Error::Runtime(
+            "repr() takes exactly 1 argument".to_string(),
+        ));
+    }
+    Ok(PyValue::Str(format!("{}", args[0])))
+}
+
+fn builtin_bin(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 1 {
+        return Err(Error::Runtime("bin() takes exactly 1 argument".to_string()));
+    }
+    match &args[0] {
+        PyValue::Int(n) => {
+            if *n < 0 {
+                Ok(PyValue::Str(format!("-0b{:b}", -n)))
+            } else {
+                Ok(PyValue::Str(format!("0b{:b}", n)))
+            }
+        }
+        PyValue::Bool(b) => Ok(PyValue::Str(format!("0b{:b}", *b as i64))),
+        other => Err(Error::Type {
+            expected: "int".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
+fn builtin_hex(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 1 {
+        return Err(Error::Runtime("hex() takes exactly 1 argument".to_string()));
+    }
+    match &args[0] {
+        PyValue::Int(n) => {
+            if *n < 0 {
+                Ok(PyValue::Str(format!("-0x{:x}", -n)))
+            } else {
+                Ok(PyValue::Str(format!("0x{:x}", n)))
+            }
+        }
+        PyValue::Bool(b) => Ok(PyValue::Str(format!("0x{:x}", *b as i64))),
+        other => Err(Error::Type {
+            expected: "int".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
+fn builtin_oct(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 1 {
+        return Err(Error::Runtime("oct() takes exactly 1 argument".to_string()));
+    }
+    match &args[0] {
+        PyValue::Int(n) => {
+            if *n < 0 {
+                Ok(PyValue::Str(format!("-0o{:o}", -n)))
+            } else {
+                Ok(PyValue::Str(format!("0o{:o}", n)))
+            }
+        }
+        PyValue::Bool(b) => Ok(PyValue::Str(format!("0o{:o}", *b as i64))),
+        other => Err(Error::Type {
+            expected: "int".to_string(),
+            got: other.type_name().to_string(),
+        }),
+    }
+}
+
+fn builtin_divmod(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 2 {
+        return Err(Error::Runtime(
+            "divmod() takes exactly 2 arguments".to_string(),
+        ));
+    }
+    match (&args[0], &args[1]) {
+        (PyValue::Int(a), PyValue::Int(b)) => {
+            if *b == 0 {
+                return Err(Error::DivisionByZero);
+            }
+            let q = (*a as f64 / *b as f64).floor() as i64;
+            let r = a - q * b;
+            Ok(PyValue::Tuple(vec![PyValue::Int(q), PyValue::Int(r)]))
+        }
+        (a_val, b_val) => {
+            let a = a_val.as_float().ok_or_else(|| Error::Type {
+                expected: "number".to_string(),
+                got: a_val.type_name().to_string(),
+            })?;
+            let b = b_val.as_float().ok_or_else(|| Error::Type {
+                expected: "number".to_string(),
+                got: b_val.type_name().to_string(),
+            })?;
+            if b == 0.0 {
+                return Err(Error::DivisionByZero);
+            }
+            let q = (a / b).floor();
+            let r = a - q * b;
+            Ok(PyValue::Tuple(vec![PyValue::Float(q), PyValue::Float(r)]))
+        }
+    }
+}
+
+fn builtin_pow(args: Vec<PyValue>) -> Result<PyValue> {
+    match args.len() {
+        2 => {
+            // 2-arg pow: same as ** operator
+            match (&args[0], &args[1]) {
+                (PyValue::Int(base), PyValue::Int(exp)) => {
+                    if *exp < 0 {
+                        Ok(PyValue::Float((*base as f64).powi(*exp as i32)))
+                    } else {
+                        Ok(PyValue::Int(base.wrapping_pow(*exp as u32)))
+                    }
+                }
+                (a, b) => {
+                    let base = a.as_float().ok_or_else(|| Error::Type {
+                        expected: "number".to_string(),
+                        got: a.type_name().to_string(),
+                    })?;
+                    let exp = b.as_float().ok_or_else(|| Error::Type {
+                        expected: "number".to_string(),
+                        got: b.type_name().to_string(),
+                    })?;
+                    Ok(PyValue::Float(base.powf(exp)))
+                }
+            }
+        }
+        3 => {
+            // 3-arg pow: modular exponentiation, all ints
+            let base = args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })?;
+            let exp = args[1].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[1].type_name().to_string(),
+            })?;
+            let modulus = args[2].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[2].type_name().to_string(),
+            })?;
+            if modulus == 0 {
+                return Err(Error::Runtime(
+                    "ValueError: pow() 3rd argument cannot be 0".to_string(),
+                ));
+            }
+            if exp < 0 {
+                return Err(Error::Runtime(
+                    "ValueError: pow() 2nd argument cannot be negative when 3rd argument specified"
+                        .to_string(),
+                ));
+            }
+            // Modular exponentiation by repeated squaring
+            let mut result: i64 = 1;
+            let mut base = base % modulus;
+            let mut exp = exp;
+            while exp > 0 {
+                if exp % 2 == 1 {
+                    result = ((result as i128 * base as i128) % modulus as i128) as i64;
+                }
+                exp /= 2;
+                base = ((base as i128 * base as i128) % modulus as i128) as i64;
+            }
+            Ok(PyValue::Int(((result % modulus) + modulus) % modulus))
+        }
+        _ => Err(Error::Runtime(
+            "pow() takes 2 or 3 arguments".to_string(),
+        )),
+    }
+}
+
+fn builtin_hash(args: Vec<PyValue>) -> Result<PyValue> {
+    if args.len() != 1 {
+        return Err(Error::Runtime(
+            "hash() takes exactly 1 argument".to_string(),
+        ));
+    }
+    if !args[0].is_hashable() {
+        return Err(Error::Runtime(format!(
+            "TypeError: unhashable type: '{}'",
+            args[0].type_name()
+        )));
+    }
+    Ok(PyValue::Int(hash_pyvalue(&args[0]) as i64))
+}
+
+fn hash_pyvalue(val: &PyValue) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    match val {
+        PyValue::None => {
+            0u8.hash(&mut hasher);
+        }
+        PyValue::Bool(b) => {
+            1u8.hash(&mut hasher);
+            b.hash(&mut hasher);
+        }
+        PyValue::Int(i) => {
+            2u8.hash(&mut hasher);
+            i.hash(&mut hasher);
+        }
+        PyValue::Float(f) => {
+            3u8.hash(&mut hasher);
+            f.to_bits().hash(&mut hasher);
+        }
+        PyValue::Str(s) => {
+            4u8.hash(&mut hasher);
+            s.hash(&mut hasher);
+        }
+        PyValue::Tuple(items) => {
+            5u8.hash(&mut hasher);
+            for item in items {
+                hash_pyvalue(item).hash(&mut hasher);
+            }
+        }
+        _ => {
+            // Unreachable if is_hashable() is checked first
+            0u8.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
 }

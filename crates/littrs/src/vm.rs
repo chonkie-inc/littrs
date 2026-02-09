@@ -566,6 +566,17 @@ impl Vm {
                 let method = frames.last().unwrap().code.names[method_idx as usize].clone();
                 self.call_mut_method(frames, &var_name, &method, n_args as usize)?;
             }
+            Op::CallMutMethodKw(var_idx, method_idx, n_pos, n_kw) => {
+                let var_name = frames.last().unwrap().code.names[var_idx as usize].clone();
+                let method = frames.last().unwrap().code.names[method_idx as usize].clone();
+                self.call_mut_method_kw(
+                    frames,
+                    &var_name,
+                    &method,
+                    n_pos as usize,
+                    n_kw as usize,
+                )?;
+            }
             Op::CallValue(n_args) => {
                 self.call_value(frames, n_args as usize, 0)?;
             }
@@ -1819,6 +1830,137 @@ impl Vm {
 
         self.stack.push(result);
         Ok(())
+    }
+
+    /// Call a mutating method on a named variable with keyword arguments.
+    fn call_mut_method_kw(
+        &mut self,
+        frames: &mut [CallFrame],
+        var_name: &str,
+        method: &str,
+        n_pos: usize,
+        n_kw: usize,
+    ) -> Result<()> {
+        // Pop keyword args (name, value pairs) in reverse
+        let mut kw_pairs: Vec<(String, PyValue)> = Vec::with_capacity(n_kw);
+        for _ in 0..n_kw {
+            let value = self.stack.pop().unwrap_or(PyValue::None);
+            let key_val = self.stack.pop().unwrap_or(PyValue::None);
+            let key = match key_val {
+                PyValue::Str(s) => s,
+                _ => {
+                    return Err(Error::Runtime(
+                        "keyword argument name must be a string".to_string(),
+                    ));
+                }
+            };
+            kw_pairs.push((key, value));
+        }
+        kw_pairs.reverse();
+
+        // Pop positional args
+        let start = self.stack.len() - n_pos;
+        let pos_args: Vec<PyValue> = self.stack.drain(start..).collect();
+
+        // Check if this is list.sort with kwargs
+        if method == "sort" {
+            // Check the variable is a list
+            let is_list = {
+                let var = self.lookup_var_mut(frames, var_name)?;
+                matches!(var, PyValue::List(_))
+            };
+            if is_list {
+                let result = self.sort_list_in_place(frames, var_name, pos_args, kw_pairs)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+        }
+
+        // Fall through to regular mutating method (ignore kwargs)
+        let var = self.lookup_var_mut(frames, var_name)?;
+        let result = match var {
+            PyValue::List(items) => methods::mutate_list(items, method, pos_args),
+            PyValue::Dict(pairs) => methods::mutate_dict(pairs, method, pos_args),
+            PyValue::Set(items) => methods::mutate_set(items, method, pos_args),
+            _ => Err(Error::Unsupported(format!(
+                "Mutating method '{}' not supported on type '{}'",
+                method,
+                var.type_name()
+            ))),
+        }?;
+
+        self.stack.push(result);
+        Ok(())
+    }
+
+    /// Sort a list in place with optional `key` and `reverse` kwargs.
+    fn sort_list_in_place(
+        &mut self,
+        frames: &mut [CallFrame],
+        var_name: &str,
+        _pos_args: Vec<PyValue>,
+        kw_pairs: Vec<(String, PyValue)>,
+    ) -> Result<PyValue> {
+        let mut key_func: Option<FunctionDef> = None;
+        let mut reverse = false;
+
+        for (kw_name, kw_val) in kw_pairs {
+            match kw_name.as_str() {
+                "key" => match kw_val {
+                    PyValue::Function(f) => key_func = Some(*f),
+                    PyValue::None => {}
+                    other => {
+                        return Err(Error::Runtime(format!(
+                            "TypeError: '{}' object is not callable",
+                            other.type_name()
+                        )));
+                    }
+                },
+                "reverse" => {
+                    reverse = kw_val.is_truthy();
+                }
+                other => {
+                    return Err(Error::Runtime(format!(
+                        "sort() got an unexpected keyword argument '{}'",
+                        other
+                    )));
+                }
+            }
+        }
+
+        // Extract items from the variable to avoid borrow conflicts with invoke_sync
+        let mut items = {
+            let var = self.lookup_var_mut(frames, var_name)?;
+            match var {
+                PyValue::List(items) => std::mem::take(items),
+                _ => unreachable!(),
+            }
+        };
+
+        if let Some(ref func) = key_func {
+            // Compute keys for each item
+            let mut keyed: Vec<(PyValue, PyValue)> = Vec::with_capacity(items.len());
+            for item in items {
+                let key = self.invoke_sync(func, vec![item.clone()], frames)?;
+                keyed.push((key, item));
+            }
+            keyed.sort_by(|(a, _), (b, _)| compare_for_sort(a, b));
+            items = keyed.into_iter().map(|(_, item)| item).collect();
+        } else {
+            items.sort_by(compare_for_sort);
+        }
+
+        if reverse {
+            items.reverse();
+        }
+
+        // Write sorted items back
+        let var = self.lookup_var_mut(frames, var_name)?;
+        if let PyValue::List(list_items) = var {
+            *list_items = items;
+        }
+
+        Ok(PyValue::None)
     }
 
     // -----------------------------------------------------------------------

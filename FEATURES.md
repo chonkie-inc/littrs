@@ -51,11 +51,11 @@ f"hello {name}!"  # "hello world!"
 
 ## String Methods
 
-`.upper()`, `.lower()`, `.strip()`, `.lstrip()`, `.rstrip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.title()`, `.capitalize()`, `.isdigit()`, `.isalpha()`, `.isalnum()`
+`.upper()`, `.lower()`, `.strip()`, `.lstrip()`, `.rstrip()`, `.split()`, `.join()`, `.replace()`, `.startswith()`, `.endswith()`, `.find()`, `.count()`, `.title()`, `.capitalize()`, `.isdigit()`, `.isalpha()`, `.isalnum()`, `.format()`, `.removeprefix()`, `.removesuffix()`, `.partition()`, `.rpartition()`, `.splitlines()`, `.center()`, `.ljust()`, `.rjust()`, `.zfill()`, `.swapcase()`, `.casefold()`
 
 ## List/Dict/Set Methods
 
-`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`
+`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.sort()` (with `key=` and `reverse=`), `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`
 
 ## Slicing
 
@@ -119,4 +119,4 @@ sandbox.files()  # {"output.txt": "result"}
 
 ## Built-in Functions
 
-`len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `range()`, `abs()`, `min()`, `max()`, `sum()`, `print()`, `type()`, `isinstance()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `dict()`, `tuple()`, `set()`, `round()`, `map()`, `filter()`, `any()`, `all()`, `chr()`, `ord()`, `open()`
+`len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `range()`, `abs()`, `min()`, `max()`, `sum()`, `print()`, `type()`, `isinstance()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `dict()`, `tuple()`, `set()`, `round()`, `map()`, `filter()`, `any()`, `all()`, `chr()`, `ord()`, `open()`, `repr()`, `bin()`, `hex()`, `oct()`, `divmod()`, `pow()`, `hash()`

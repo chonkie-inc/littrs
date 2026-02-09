@@ -199,6 +199,292 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
             };
             Ok(PyValue::Str(result))
         }
+        "format" => str_format(s, args),
+        "removeprefix" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "removeprefix() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let prefix = args[0].as_str().ok_or_else(|| Error::Type {
+                expected: "str".to_string(),
+                got: args[0].type_name().to_string(),
+            })?;
+            Ok(PyValue::Str(
+                s.strip_prefix(prefix).unwrap_or(s).to_string(),
+            ))
+        }
+        "removesuffix" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "removesuffix() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let suffix = args[0].as_str().ok_or_else(|| Error::Type {
+                expected: "str".to_string(),
+                got: args[0].type_name().to_string(),
+            })?;
+            Ok(PyValue::Str(
+                s.strip_suffix(suffix).unwrap_or(s).to_string(),
+            ))
+        }
+        "partition" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "partition() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let sep = args[0].as_str().ok_or_else(|| Error::Type {
+                expected: "str".to_string(),
+                got: args[0].type_name().to_string(),
+            })?;
+            if let Some(pos) = s.find(sep) {
+                Ok(PyValue::Tuple(vec![
+                    PyValue::Str(s[..pos].to_string()),
+                    PyValue::Str(sep.to_string()),
+                    PyValue::Str(s[pos + sep.len()..].to_string()),
+                ]))
+            } else {
+                Ok(PyValue::Tuple(vec![
+                    PyValue::Str(s.to_string()),
+                    PyValue::Str(String::new()),
+                    PyValue::Str(String::new()),
+                ]))
+            }
+        }
+        "rpartition" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "rpartition() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let sep = args[0].as_str().ok_or_else(|| Error::Type {
+                expected: "str".to_string(),
+                got: args[0].type_name().to_string(),
+            })?;
+            if let Some(pos) = s.rfind(sep) {
+                Ok(PyValue::Tuple(vec![
+                    PyValue::Str(s[..pos].to_string()),
+                    PyValue::Str(sep.to_string()),
+                    PyValue::Str(s[pos + sep.len()..].to_string()),
+                ]))
+            } else {
+                Ok(PyValue::Tuple(vec![
+                    PyValue::Str(String::new()),
+                    PyValue::Str(String::new()),
+                    PyValue::Str(s.to_string()),
+                ]))
+            }
+        }
+        "splitlines" => {
+            let keepends = args
+                .first()
+                .map(|v| v.is_truthy())
+                .unwrap_or(false);
+            let mut lines = Vec::new();
+            let mut start = 0;
+            let bytes = s.as_bytes();
+            let len = bytes.len();
+            let mut i = 0;
+            while i < len {
+                if bytes[i] == b'\r' && i + 1 < len && bytes[i + 1] == b'\n' {
+                    if keepends {
+                        lines.push(PyValue::Str(s[start..i + 2].to_string()));
+                    } else {
+                        lines.push(PyValue::Str(s[start..i].to_string()));
+                    }
+                    i += 2;
+                    start = i;
+                } else if bytes[i] == b'\n' || bytes[i] == b'\r' {
+                    if keepends {
+                        lines.push(PyValue::Str(s[start..i + 1].to_string()));
+                    } else {
+                        lines.push(PyValue::Str(s[start..i].to_string()));
+                    }
+                    i += 1;
+                    start = i;
+                } else {
+                    i += 1;
+                }
+            }
+            if start < len {
+                lines.push(PyValue::Str(s[start..].to_string()));
+            }
+            Ok(PyValue::List(lines))
+        }
+        "center" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(Error::Runtime(
+                    "center() takes 1 or 2 arguments".to_string(),
+                ));
+            }
+            let width = args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })? as usize;
+            let fill = if args.len() > 1 {
+                let f = args[1].as_str().ok_or_else(|| Error::Type {
+                    expected: "str".to_string(),
+                    got: args[1].type_name().to_string(),
+                })?;
+                if f.chars().count() != 1 {
+                    return Err(Error::Runtime(
+                        "TypeError: The fill character must be exactly one character long"
+                            .to_string(),
+                    ));
+                }
+                f.chars().next().unwrap()
+            } else {
+                ' '
+            };
+            let slen = s.chars().count();
+            if slen >= width {
+                Ok(PyValue::Str(s.to_string()))
+            } else {
+                let total_pad = width - slen;
+                let left_pad = total_pad / 2;
+                let right_pad = total_pad - left_pad;
+                let mut result = String::with_capacity(width);
+                for _ in 0..left_pad {
+                    result.push(fill);
+                }
+                result.push_str(s);
+                for _ in 0..right_pad {
+                    result.push(fill);
+                }
+                Ok(PyValue::Str(result))
+            }
+        }
+        "ljust" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(Error::Runtime(
+                    "ljust() takes 1 or 2 arguments".to_string(),
+                ));
+            }
+            let width = args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })? as usize;
+            let fill = if args.len() > 1 {
+                let f = args[1].as_str().ok_or_else(|| Error::Type {
+                    expected: "str".to_string(),
+                    got: args[1].type_name().to_string(),
+                })?;
+                if f.chars().count() != 1 {
+                    return Err(Error::Runtime(
+                        "TypeError: The fill character must be exactly one character long"
+                            .to_string(),
+                    ));
+                }
+                f.chars().next().unwrap()
+            } else {
+                ' '
+            };
+            let slen = s.chars().count();
+            if slen >= width {
+                Ok(PyValue::Str(s.to_string()))
+            } else {
+                let mut result = s.to_string();
+                for _ in 0..(width - slen) {
+                    result.push(fill);
+                }
+                Ok(PyValue::Str(result))
+            }
+        }
+        "rjust" => {
+            if args.is_empty() || args.len() > 2 {
+                return Err(Error::Runtime(
+                    "rjust() takes 1 or 2 arguments".to_string(),
+                ));
+            }
+            let width = args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })? as usize;
+            let fill = if args.len() > 1 {
+                let f = args[1].as_str().ok_or_else(|| Error::Type {
+                    expected: "str".to_string(),
+                    got: args[1].type_name().to_string(),
+                })?;
+                if f.chars().count() != 1 {
+                    return Err(Error::Runtime(
+                        "TypeError: The fill character must be exactly one character long"
+                            .to_string(),
+                    ));
+                }
+                f.chars().next().unwrap()
+            } else {
+                ' '
+            };
+            let slen = s.chars().count();
+            if slen >= width {
+                Ok(PyValue::Str(s.to_string()))
+            } else {
+                let mut result = String::with_capacity(width);
+                for _ in 0..(width - slen) {
+                    result.push(fill);
+                }
+                result.push_str(s);
+                Ok(PyValue::Str(result))
+            }
+        }
+        "zfill" => {
+            if args.len() != 1 {
+                return Err(Error::Runtime(
+                    "zfill() takes exactly 1 argument".to_string(),
+                ));
+            }
+            let width = args[0].as_int().ok_or_else(|| Error::Type {
+                expected: "int".to_string(),
+                got: args[0].type_name().to_string(),
+            })? as usize;
+            let slen = s.chars().count();
+            if slen >= width {
+                Ok(PyValue::Str(s.to_string()))
+            } else {
+                let (sign, rest) = if s.starts_with('+') || s.starts_with('-') {
+                    (&s[..1], &s[1..])
+                } else {
+                    ("", s)
+                };
+                let pad = width - slen;
+                let mut result = String::with_capacity(width);
+                result.push_str(sign);
+                for _ in 0..pad {
+                    result.push('0');
+                }
+                result.push_str(rest);
+                Ok(PyValue::Str(result))
+            }
+        }
+        "swapcase" => {
+            if !args.is_empty() {
+                return Err(Error::Runtime(
+                    "swapcase() takes no arguments".to_string(),
+                ));
+            }
+            let result: String = s
+                .chars()
+                .flat_map(|c| {
+                    if c.is_uppercase() {
+                        c.to_lowercase().collect::<Vec<_>>()
+                    } else if c.is_lowercase() {
+                        c.to_uppercase().collect::<Vec<_>>()
+                    } else {
+                        vec![c]
+                    }
+                })
+                .collect();
+            Ok(PyValue::Str(result))
+        }
+        "casefold" => {
+            if !args.is_empty() {
+                return Err(Error::Runtime(
+                    "casefold() takes no arguments".to_string(),
+                ));
+            }
+            Ok(PyValue::Str(s.to_lowercase()))
+        }
         _ => Err(Error::Unsupported(format!(
             "String method '{}' not implemented",
             method
@@ -565,6 +851,74 @@ pub fn call_set_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> R
             method
         ))),
     }
+}
+
+/// Implement `str.format(*args)` — basic positional and indexed substitution.
+fn str_format(s: &str, args: Vec<PyValue>) -> Result<PyValue> {
+    let mut result = String::new();
+    let mut auto_idx = 0usize;
+    let chars: Vec<char> = s.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        if chars[i] == '{' {
+            if i + 1 < len && chars[i + 1] == '{' {
+                // Escaped brace: {{ → {
+                result.push('{');
+                i += 2;
+                continue;
+            }
+            // Find closing }
+            let start = i + 1;
+            let mut end = start;
+            while end < len && chars[end] != '}' {
+                end += 1;
+            }
+            if end >= len {
+                return Err(Error::Runtime(
+                    "ValueError: Single '{' encountered in format string".to_string(),
+                ));
+            }
+            let field: String = chars[start..end].iter().collect();
+            let val = if field.is_empty() {
+                // Auto-indexed: {}
+                let idx = auto_idx;
+                auto_idx += 1;
+                args.get(idx).ok_or_else(|| {
+                    Error::Runtime("IndexError: Replacement index out of range".to_string())
+                })?
+            } else if let Ok(idx) = field.parse::<usize>() {
+                // Explicit index: {0}, {1}, ...
+                args.get(idx).ok_or_else(|| {
+                    Error::Runtime("IndexError: Replacement index out of range".to_string())
+                })?
+            } else {
+                // Named field — not supported without kwargs
+                return Err(Error::Runtime(format!(
+                    "KeyError: '{}'",
+                    field
+                )));
+            };
+            result.push_str(&val.to_print_string());
+            i = end + 1;
+        } else if chars[i] == '}' {
+            if i + 1 < len && chars[i + 1] == '}' {
+                // Escaped brace: }} → }
+                result.push('}');
+                i += 2;
+            } else {
+                return Err(Error::Runtime(
+                    "ValueError: Single '}' encountered in format string".to_string(),
+                ));
+            }
+        } else {
+            result.push(chars[i]);
+            i += 1;
+        }
+    }
+
+    Ok(PyValue::Str(result))
 }
 
 /// Convert a PyValue to a Vec for set operations (accepts set, list, tuple).

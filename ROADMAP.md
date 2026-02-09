@@ -12,7 +12,7 @@ Contributions welcome on any of these.
 
 - [x] Compile `lambda` expressions to `MakeFunction` + inline `CodeObject`
 - [x] Support `key=` parameter in `sorted()` (with `reverse=` too)
-- [ ] Support `key=` and `reverse=` parameters in `list.sort()`
+- [x] Support `key=` and `reverse=` parameters in `list.sort()`
 
 ### ~~Dict and set comprehensions~~ ✅
 
@@ -115,15 +115,15 @@ Python integers have arbitrary precision. Littrs uses `i64`, which overflows at 
 
 ## Built-in Functions
 
-### Missing builtins
+### ~~Missing builtins~~ (partially ✅)
 
-Several commonly-used builtins are not yet implemented:
+Several commonly-used builtins are now implemented:
 
-- [ ] `repr(x)` — string representation (LLMs use this for debugging and logging)
-- [ ] `bin(n)`, `hex(n)`, `oct(n)` — number formatting
-- [ ] `divmod(a, b)` — returns `(a // b, a % b)`
-- [ ] `pow(base, exp, mod=None)` — power with optional modulus
-- [ ] `hash(x)` — hash value (needed if sets/frozensets are added)
+- [x] `repr(x)` — string representation (LLMs use this for debugging and logging)
+- [x] `bin(n)`, `hex(n)`, `oct(n)` — number formatting
+- [x] `divmod(a, b)` — returns `(a // b, a % b)`
+- [x] `pow(base, exp, mod=None)` — power with optional modulus
+- [x] `hash(x)` — hash value (needed if sets/frozensets are added)
 - [ ] `id(x)` — object identity (can be a no-op or return a placeholder)
 - [ ] `next(iterator, default)` — advance an iterator
 - [ ] `input()` — not applicable in sandbox, but could return empty string or error clearly
@@ -139,34 +139,35 @@ Currently `isinstance(x, "str")` takes a string typename. Real Python uses type 
 
 ## Methods
 
-### Missing string methods
+### ~~Missing string methods~~ (partially ✅)
 
-The most notable gaps compared to CPython's `str`:
+Many commonly-used string methods are now implemented:
 
-- [ ] `removeprefix(prefix)`, `removesuffix(suffix)` — Python 3.9+, LLMs use these
-- [ ] `partition(sep)`, `rpartition(sep)` — split into 3-tuple at first/last occurrence
-- [ ] `splitlines(keepends=False)` — split by line boundaries
+- [x] `removeprefix(prefix)`, `removesuffix(suffix)` — Python 3.9+, LLMs use these
+- [x] `partition(sep)`, `rpartition(sep)` — split into 3-tuple at first/last occurrence
+- [x] `splitlines(keepends=False)` — split by line boundaries
+- [x] `center(width, fillchar)`, `ljust(width, fillchar)`, `rjust(width, fillchar)` — padding
+- [x] `zfill(width)` — zero-pad numbers
+- [x] `swapcase()`, `casefold()` — case transformations
 - [ ] `rsplit(sep, maxsplit)` — split from the right
 - [ ] `rfind(sub)`, `rindex(sub)` — search from the right
-- [ ] `center(width, fillchar)`, `ljust(width, fillchar)`, `rjust(width, fillchar)` — padding
-- [ ] `zfill(width)` — zero-pad numbers
-- [ ] `swapcase()`, `casefold()` — case transformations
 - [ ] `isspace()`, `islower()`, `isupper()`, `isascii()`, `isdecimal()`, `isidentifier()`, `istitle()` — predicates
 - [ ] `encode(encoding)` — string to bytes (depends on bytes type)
 
-### `str.format()`
+### ~~`str.format()`~~ (partially ✅)
 
-LLMs frequently use `"Hello, {}!".format(name)` and `"{key}: {value}".format(key=k, value=v)`. This is an alternative to f-strings that some LLMs prefer. The full format spec mini-language is complex, but basic positional and keyword substitution would cover most LLM usage.
+Basic positional and indexed substitution is now supported:
 
-- [ ] Basic positional: `"{} {}".format(a, b)`
-- [ ] Keyword: `"{name}".format(name=x)`
-- [ ] Indexed: `"{0} {1}".format(a, b)`
+- [x] Basic positional: `"{} {}".format(a, b)`
+- [x] Indexed: `"{0} {1}".format(a, b)`
+- [x] Escaped braces: `"{{literal}}".format()`
+- [ ] Keyword: `"{name}".format(name=x)` (requires kwargs on `CallMethod`)
 
 ### ~~`sorted()` with `key=` and `reverse=`~~ ✅
 
 - [x] `reverse=True` parameter on `sorted()`
 - [x] `key=func` parameter on `sorted()` (works with lambdas)
-- [ ] `key=` and `reverse=` on `list.sort()`
+- [x] `key=` and `reverse=` on `list.sort()`
 
 ---
 

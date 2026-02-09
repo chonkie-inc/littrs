@@ -957,14 +957,36 @@ impl Compiler {
 
             if is_list_mut || is_dict_mut || is_set_mut {
                 let var_idx = self.add_name(name.id.as_str());
-                // Compile arguments
+                // Compile positional arguments
                 for arg in &call.arguments.args {
                     self.compile_expr(arg)?;
                 }
-                self.emit(
-                    Op::CallMutMethod(var_idx, method_idx, call.arguments.args.len() as u32),
-                    span,
-                );
+
+                if call.arguments.keywords.is_empty() {
+                    self.emit(
+                        Op::CallMutMethod(var_idx, method_idx, call.arguments.args.len() as u32),
+                        span,
+                    );
+                } else {
+                    // Compile keyword arguments: push name string then value
+                    for kw in &call.arguments.keywords {
+                        if let Some(ref arg_name) = kw.arg {
+                            let kw_name_idx =
+                                self.add_const(PyValue::Str(arg_name.as_str().to_string()));
+                            self.emit(Op::LoadConst(kw_name_idx), span);
+                            self.compile_expr(&kw.value)?;
+                        }
+                    }
+                    self.emit(
+                        Op::CallMutMethodKw(
+                            var_idx,
+                            method_idx,
+                            call.arguments.args.len() as u32,
+                            call.arguments.keywords.len() as u32,
+                        ),
+                        span,
+                    );
+                }
                 return Ok(());
             }
         }

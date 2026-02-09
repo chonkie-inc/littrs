@@ -3477,3 +3477,416 @@ result
         .unwrap();
     assert_eq!(result, PyValue::Str("caught".to_string()));
 }
+
+// =======================================================================
+// Builtin functions: repr, bin, hex, oct, divmod, pow, hash
+// =======================================================================
+
+#[test]
+fn test_builtin_repr() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("repr('hello')").unwrap(),
+        PyValue::Str("'hello'".to_string())
+    );
+    assert_eq!(
+        sandbox.run("repr(42)").unwrap(),
+        PyValue::Str("42".to_string())
+    );
+    assert_eq!(
+        sandbox.run("repr(None)").unwrap(),
+        PyValue::Str("None".to_string())
+    );
+    assert_eq!(
+        sandbox.run("repr([1, 2, 'a'])").unwrap(),
+        PyValue::Str("[1, 2, 'a']".to_string())
+    );
+    assert_eq!(
+        sandbox.run("repr(True)").unwrap(),
+        PyValue::Str("True".to_string())
+    );
+}
+
+#[test]
+fn test_builtin_bin() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("bin(10)").unwrap(),
+        PyValue::Str("0b1010".to_string())
+    );
+    assert_eq!(
+        sandbox.run("bin(0)").unwrap(),
+        PyValue::Str("0b0".to_string())
+    );
+    assert_eq!(
+        sandbox.run("bin(-10)").unwrap(),
+        PyValue::Str("-0b1010".to_string())
+    );
+    assert_eq!(
+        sandbox.run("bin(255)").unwrap(),
+        PyValue::Str("0b11111111".to_string())
+    );
+}
+
+#[test]
+fn test_builtin_hex() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("hex(255)").unwrap(),
+        PyValue::Str("0xff".to_string())
+    );
+    assert_eq!(
+        sandbox.run("hex(0)").unwrap(),
+        PyValue::Str("0x0".to_string())
+    );
+    assert_eq!(
+        sandbox.run("hex(-255)").unwrap(),
+        PyValue::Str("-0xff".to_string())
+    );
+    assert_eq!(
+        sandbox.run("hex(16)").unwrap(),
+        PyValue::Str("0x10".to_string())
+    );
+}
+
+#[test]
+fn test_builtin_oct() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("oct(8)").unwrap(),
+        PyValue::Str("0o10".to_string())
+    );
+    assert_eq!(
+        sandbox.run("oct(0)").unwrap(),
+        PyValue::Str("0o0".to_string())
+    );
+    assert_eq!(
+        sandbox.run("oct(-8)").unwrap(),
+        PyValue::Str("-0o10".to_string())
+    );
+}
+
+#[test]
+fn test_builtin_divmod() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("divmod(7, 3)").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(2), PyValue::Int(1)])
+    );
+    assert_eq!(
+        sandbox.run("divmod(-7, 3)").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(-3), PyValue::Int(2)])
+    );
+    assert_eq!(
+        sandbox.run("divmod(10, 5)").unwrap(),
+        PyValue::Tuple(vec![PyValue::Int(2), PyValue::Int(0)])
+    );
+}
+
+#[test]
+fn test_builtin_pow() {
+    let mut sandbox = Sandbox::new();
+
+    // 2-arg pow
+    assert_eq!(sandbox.run("pow(2, 10)").unwrap(), PyValue::Int(1024));
+    assert_eq!(sandbox.run("pow(3, 0)").unwrap(), PyValue::Int(1));
+
+    // 3-arg pow (modular)
+    assert_eq!(sandbox.run("pow(2, 10, 1000)").unwrap(), PyValue::Int(24));
+    assert_eq!(sandbox.run("pow(3, 4, 5)").unwrap(), PyValue::Int(1));
+
+    // Float pow
+    assert_eq!(sandbox.run("pow(2.0, 3)").unwrap(), PyValue::Float(8.0));
+}
+
+#[test]
+fn test_builtin_hash() {
+    let mut sandbox = Sandbox::new();
+
+    // hash returns an int
+    let result = sandbox.run("hash('hello')").unwrap();
+    assert!(matches!(result, PyValue::Int(_)));
+
+    // Same value gives same hash (deterministic within a run)
+    sandbox.run("a = hash('test')").unwrap();
+    sandbox.run("b = hash('test')").unwrap();
+    assert_eq!(sandbox.run("a == b").unwrap(), PyValue::Bool(true));
+
+    // Unhashable type errors
+    assert!(sandbox.run("hash([1, 2, 3])").is_err());
+    assert!(sandbox.run("hash({'a': 1})").is_err());
+}
+
+// =======================================================================
+// String methods: format, removeprefix, removesuffix, partition, etc.
+// =======================================================================
+
+#[test]
+fn test_str_format() {
+    let mut sandbox = Sandbox::new();
+
+    // Auto-indexed
+    assert_eq!(
+        sandbox.run("'{} {}'.format('hello', 'world')").unwrap(),
+        PyValue::Str("hello world".to_string())
+    );
+
+    // Indexed
+    assert_eq!(
+        sandbox.run("'{1} {0}'.format('world', 'hello')").unwrap(),
+        PyValue::Str("hello world".to_string())
+    );
+
+    // Escaped braces
+    assert_eq!(
+        sandbox.run("'{{literal}}'.format()").unwrap(),
+        PyValue::Str("{literal}".to_string())
+    );
+
+    // Mixed
+    assert_eq!(
+        sandbox
+            .run("'Result: {} (code {})'.format('ok', 200)")
+            .unwrap(),
+        PyValue::Str("Result: ok (code 200)".to_string())
+    );
+}
+
+#[test]
+fn test_str_removeprefix() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'TestHook'.removeprefix('Test')").unwrap(),
+        PyValue::Str("Hook".to_string())
+    );
+    // No match — returns original
+    assert_eq!(
+        sandbox.run("'TestHook'.removeprefix('Hook')").unwrap(),
+        PyValue::Str("TestHook".to_string())
+    );
+}
+
+#[test]
+fn test_str_removesuffix() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'MiscTests'.removesuffix('Tests')").unwrap(),
+        PyValue::Str("Misc".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'MiscTests'.removesuffix('Misc')").unwrap(),
+        PyValue::Str("MiscTests".to_string())
+    );
+}
+
+#[test]
+fn test_str_partition() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'hello-world'.partition('-')").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Str("hello".to_string()),
+            PyValue::Str("-".to_string()),
+            PyValue::Str("world".to_string()),
+        ])
+    );
+    // Not found
+    assert_eq!(
+        sandbox.run("'hello'.partition('-')").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Str("hello".to_string()),
+            PyValue::Str(String::new()),
+            PyValue::Str(String::new()),
+        ])
+    );
+}
+
+#[test]
+fn test_str_rpartition() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'a-b-c'.rpartition('-')").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Str("a-b".to_string()),
+            PyValue::Str("-".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+    // Not found
+    assert_eq!(
+        sandbox.run("'hello'.rpartition('-')").unwrap(),
+        PyValue::Tuple(vec![
+            PyValue::Str(String::new()),
+            PyValue::Str(String::new()),
+            PyValue::Str("hello".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_str_splitlines() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run(r#"'a\nb\nc'.splitlines()"#).unwrap(),
+        PyValue::List(vec![
+            PyValue::Str("a".to_string()),
+            PyValue::Str("b".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_str_center_ljust_rjust() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'hi'.center(10)").unwrap(),
+        PyValue::Str("    hi    ".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'hi'.center(10, '*')").unwrap(),
+        PyValue::Str("****hi****".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'hi'.ljust(10)").unwrap(),
+        PyValue::Str("hi        ".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'hi'.rjust(10)").unwrap(),
+        PyValue::Str("        hi".to_string())
+    );
+    // Already wider than width
+    assert_eq!(
+        sandbox.run("'hello'.center(3)").unwrap(),
+        PyValue::Str("hello".to_string())
+    );
+}
+
+#[test]
+fn test_str_zfill() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'42'.zfill(5)").unwrap(),
+        PyValue::Str("00042".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'-42'.zfill(5)").unwrap(),
+        PyValue::Str("-0042".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'+42'.zfill(5)").unwrap(),
+        PyValue::Str("+0042".to_string())
+    );
+    assert_eq!(
+        sandbox.run("'hello'.zfill(3)").unwrap(),
+        PyValue::Str("hello".to_string())
+    );
+}
+
+#[test]
+fn test_str_swapcase() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'Hello World'.swapcase()").unwrap(),
+        PyValue::Str("hELLO wORLD".to_string())
+    );
+}
+
+#[test]
+fn test_str_casefold() {
+    let mut sandbox = Sandbox::new();
+
+    assert_eq!(
+        sandbox.run("'HELLO'.casefold()").unwrap(),
+        PyValue::Str("hello".to_string())
+    );
+}
+
+// =======================================================================
+// list.sort(key=, reverse=)
+// =======================================================================
+
+#[test]
+fn test_list_sort_basic() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.run("nums = [3, 1, 2]").unwrap();
+    sandbox.run("nums.sort()").unwrap();
+    assert_eq!(
+        sandbox.run("nums").unwrap(),
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_list_sort_reverse() {
+    let mut sandbox = Sandbox::new();
+
+    sandbox.run("nums = [3, 1, 2]").unwrap();
+    sandbox.run("nums.sort(reverse=True)").unwrap();
+    assert_eq!(
+        sandbox.run("nums").unwrap(),
+        PyValue::List(vec![PyValue::Int(3), PyValue::Int(2), PyValue::Int(1)])
+    );
+}
+
+#[test]
+fn test_list_sort_key() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .run(
+            r#"
+words = ['banana', 'pie', 'Apple', 'cherry']
+words.sort(key=lambda s: len(s))
+words
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Str("pie".to_string()),
+            PyValue::Str("Apple".to_string()),
+            PyValue::Str("banana".to_string()),
+            PyValue::Str("cherry".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_list_sort_key_and_reverse() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .run(
+            r#"
+words = ['banana', 'pie', 'Apple', 'cherry']
+words.sort(key=lambda s: len(s), reverse=True)
+words
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Str("cherry".to_string()),
+            PyValue::Str("banana".to_string()),
+            PyValue::Str("Apple".to_string()),
+            PyValue::Str("pie".to_string()),
+        ])
+    );
+}
