@@ -18,16 +18,17 @@
 
 LLMs are better at writing Python than crafting JSON tool calls. But running LLM-generated code means either spinning up containers, paying for sandboxing services, or gambling with `exec()`. Littrs takes a different approach: a Python sandbox that embeds directly into your Rust or Python application as a library. No containers, no network calls, no infrastructure — just `pip install` or `cargo add` and go.
 
-You register functions as tools, hand the sandbox some LLM-generated code, and get back a result. The sandbox compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities — no filesystem, no network, no env vars, no `import`. The only way sandboxed code can reach the outside world is through tools you explicitly provide.
+You register functions as tools, hand the sandbox some LLM-generated code, and get back a result. The sandbox compiles Python to bytecode and runs it on a stack-based VM with zero ambient capabilities — no filesystem, no network, no env vars. The only way sandboxed code can reach the outside world is through tools you explicitly provide.
 
 * **Tool registration** — `@sandbox.tool` in Python, `#[tool]` in Rust. Inject variables with `sandbox["x"] = val`, run code with `sandbox(code)`
 * **Resource limits** — cap bytecode instructions and recursion depth per call, enforced at the VM level and uncatchable by `try`/`except`
 * **Stdout capture** — `print()` output collected and returned separately from the result
 * **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings, ready to paste into a system prompt
+* **Built-in modules** — `json`, `math`, and `typing` available out of the box with `Sandbox(builtins=True)` / `Sandbox::with_builtins()`. Register custom modules with `.module()`
 * **WASM isolation** — optional stronger sandboxing via an embedded wasmtime guest module with memory and fuel limits
 * **Fast startup** — no interpreter boot, no runtime to load. Create a sandbox, register tools, run code
 
-Littrs implements enough Python for an LLM to call tools, process results, handle errors, and return values. It does not support `import`, third-party packages, classes, closures, `async`/`await`, `finally`, or `match` — see the [ROADMAP](ROADMAP.md) for what's planned and the full list of [supported features](FEATURES.md).
+Littrs implements enough Python for an LLM to call tools, process results, handle errors, and return values. It does not support third-party packages, classes, closures, `async`/`await`, `finally`, or `match` — see the [ROADMAP](ROADMAP.md) for what's planned and the full list of [supported features](FEATURES.md).
 
 ## Installation
 
@@ -119,6 +120,37 @@ def fetch_data(args):
     return {"id": args[0], "name": "Example"}
 
 sandbox.register("fetch_data", fetch_data)
+```
+
+#### Imports & Built-in Modules
+
+Create a sandbox with `builtins=True` to enable `json`, `math`, and `typing` modules:
+
+```python
+sandbox = Sandbox(builtins=True)
+
+result = sandbox("""
+import json
+data = json.loads('{"name": "Alice", "score": 95}')
+data["score"]
+""")
+# result == 95
+```
+
+`from ... import` works too:
+
+```python
+sandbox("""
+from math import sqrt, pi
+sqrt(pi)
+""")
+```
+
+Register custom modules with `.module()`:
+
+```python
+sandbox.module("config", {"version": "1.0", "debug": False})
+sandbox("import config; config.version")  # "1.0"
 ```
 
 #### WASM Sandbox (Stronger Isolation)
@@ -227,6 +259,38 @@ sandbox.register_fn("fetch_data", |args| {
         (PyValue::Str("name".to_string()), PyValue::Str("Example".to_string())),
     ])
 });
+```
+
+#### Imports & Built-in Modules
+
+Use `Sandbox::with_builtins()` to enable `json`, `math`, and `typing` modules:
+
+```rust
+use littrs::{Sandbox, PyValue};
+
+let mut sandbox = Sandbox::with_builtins();
+
+let result = sandbox.run(r#"
+import json
+data = json.loads('{"name": "Alice", "score": 95}')
+data["score"]
+"#).unwrap();
+assert_eq!(result, PyValue::Int(95));
+```
+
+Register custom modules with `.module()`:
+
+```rust
+use littrs::{Sandbox, PyValue};
+
+let mut sandbox = Sandbox::new();
+sandbox.module("config", |m| {
+    m.constant("version", PyValue::Str("1.0".into()));
+    m.function("get_flag", |_args| PyValue::Bool(true));
+});
+
+let result = sandbox.run("import config; config.version").unwrap();
+assert_eq!(result, PyValue::Str("1.0".into()));
 ```
 
 ## Alternatives
