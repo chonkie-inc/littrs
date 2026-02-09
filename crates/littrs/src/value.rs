@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use crate::bytecode::FunctionDef;
 
@@ -192,6 +194,40 @@ impl PyValue {
         }
     }
 
+    /// Compute a u64 hash for hashable values.
+    ///
+    /// Panics on unhashable types — callers should check `is_hashable()` first.
+    pub fn hash_value(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        match self {
+            PyValue::None => 0u8.hash(&mut hasher),
+            PyValue::Bool(b) => {
+                1u8.hash(&mut hasher);
+                b.hash(&mut hasher);
+            }
+            PyValue::Int(i) => {
+                2u8.hash(&mut hasher);
+                i.hash(&mut hasher);
+            }
+            PyValue::Float(f) => {
+                3u8.hash(&mut hasher);
+                f.to_bits().hash(&mut hasher);
+            }
+            PyValue::Str(s) => {
+                4u8.hash(&mut hasher);
+                s.hash(&mut hasher);
+            }
+            PyValue::Tuple(items) => {
+                5u8.hash(&mut hasher);
+                for item in items {
+                    item.hash_value().hash(&mut hasher);
+                }
+            }
+            _ => panic!("hash_value called on unhashable type: {}", self.type_name()),
+        }
+        hasher.finish()
+    }
+
     /// Format value for print() output.
     ///
     /// Unlike Display, this doesn't quote strings (matching Python's print behavior).
@@ -244,6 +280,34 @@ impl PyValue {
             PyValue::NativeFunction(key) => format!("<built-in function {}>", key),
             PyValue::File(handle) => format!("<file handle={}>", handle),
         }
+    }
+}
+
+/// Hash-based index for O(1) amortized membership testing on `Vec<PyValue>` sets.
+///
+/// Builds a `HashMap<u64, Vec<usize>>` keyed by hash with indices into the
+/// original slice. Lookups verify equality to handle hash collisions correctly.
+pub struct SetIndex<'a> {
+    items: &'a [PyValue],
+    map: HashMap<u64, Vec<usize>>,
+}
+
+impl<'a> SetIndex<'a> {
+    /// Build an index from a slice of PyValues.
+    pub fn new(items: &'a [PyValue]) -> Self {
+        let mut map: HashMap<u64, Vec<usize>> = HashMap::with_capacity(items.len());
+        for (i, item) in items.iter().enumerate() {
+            map.entry(item.hash_value()).or_default().push(i);
+        }
+        Self { items, map }
+    }
+
+    /// Check membership in O(1) amortized time.
+    pub fn contains(&self, needle: &PyValue) -> bool {
+        let h = needle.hash_value();
+        self.map
+            .get(&h)
+            .is_some_and(|indices| indices.iter().any(|&i| &self.items[i] == needle))
     }
 }
 

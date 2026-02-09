@@ -7,7 +7,7 @@
 
 use crate::bytecode::{BinOp, CmpOp};
 use crate::error::{Error, Result};
-use crate::value::PyValue;
+use crate::value::{PyValue, SetIndex};
 
 /// Apply a binary operator to two values.
 ///
@@ -39,7 +39,8 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
         },
         BinOp::Sub => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                let items: Vec<PyValue> = a.iter().filter(|v| !b.contains(v)).cloned().collect();
+                let idx = SetIndex::new(b);
+                let items: Vec<PyValue> = a.iter().filter(|v| !idx.contains(v)).cloned().collect();
                 Ok(PyValue::Set(items))
             }
             _ => numeric_binop(left, right, |a, b| a - b, |a, b| a - b),
@@ -165,9 +166,10 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
         }
         BinOp::BitOr => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
+                let idx = SetIndex::new(a);
                 let mut items = a.clone();
                 for v in b {
-                    if !items.contains(v) {
+                    if !idx.contains(v) {
                         items.push(v.clone());
                     }
                 }
@@ -177,10 +179,12 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
         },
         BinOp::BitXor => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
+                let idx_b = SetIndex::new(b);
+                let idx_a = SetIndex::new(a);
                 let mut items: Vec<PyValue> =
-                    a.iter().filter(|v| !b.contains(v)).cloned().collect();
+                    a.iter().filter(|v| !idx_b.contains(v)).cloned().collect();
                 for v in b {
-                    if !a.contains(v) {
+                    if !idx_a.contains(v) {
                         items.push(v.clone());
                     }
                 }
@@ -190,7 +194,8 @@ pub fn apply_binop(op: &BinOp, left: &PyValue, right: &PyValue) -> Result<PyValu
         },
         BinOp::BitAnd => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                let items: Vec<PyValue> = a.iter().filter(|v| b.contains(v)).cloned().collect();
+                let idx = SetIndex::new(b);
+                let items: Vec<PyValue> = a.iter().filter(|v| idx.contains(v)).cloned().collect();
                 Ok(PyValue::Set(items))
             }
             _ => int_binop(left, right, |a, b| a & b),
@@ -208,34 +213,44 @@ pub fn apply_cmpop(op: &CmpOp, left: &PyValue, right: &PyValue) -> Result<bool> 
     match op {
         CmpOp::Eq => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                Ok(a.len() == b.len() && a.iter().all(|v| b.contains(v)))
+                let idx = SetIndex::new(b);
+                Ok(a.len() == b.len() && a.iter().all(|v| idx.contains(v)))
             }
             _ => Ok(left == right),
         },
         CmpOp::NotEq => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                Ok(a.len() != b.len() || !a.iter().all(|v| b.contains(v)))
+                let idx = SetIndex::new(b);
+                Ok(a.len() != b.len() || !a.iter().all(|v| idx.contains(v)))
             }
             _ => Ok(left != right),
         },
         CmpOp::Lt => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                Ok(a.len() < b.len() && a.iter().all(|v| b.contains(v)))
+                let idx = SetIndex::new(b);
+                Ok(a.len() < b.len() && a.iter().all(|v| idx.contains(v)))
             }
             _ => compare_values(left, right, |a, b| a < b, |a, b| a < b),
         },
         CmpOp::LtE => match (left, right) {
-            (PyValue::Set(a), PyValue::Set(b)) => Ok(a.iter().all(|v| b.contains(v))),
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let idx = SetIndex::new(b);
+                Ok(a.iter().all(|v| idx.contains(v)))
+            }
             _ => compare_values(left, right, |a, b| a <= b, |a, b| a <= b),
         },
         CmpOp::Gt => match (left, right) {
             (PyValue::Set(a), PyValue::Set(b)) => {
-                Ok(a.len() > b.len() && b.iter().all(|v| a.contains(v)))
+                let idx = SetIndex::new(a);
+                Ok(a.len() > b.len() && b.iter().all(|v| idx.contains(v)))
             }
             _ => compare_values(left, right, |a, b| a > b, |a, b| a > b),
         },
         CmpOp::GtE => match (left, right) {
-            (PyValue::Set(a), PyValue::Set(b)) => Ok(b.iter().all(|v| a.contains(v))),
+            (PyValue::Set(a), PyValue::Set(b)) => {
+                let idx = SetIndex::new(a);
+                Ok(b.iter().all(|v| idx.contains(v)))
+            }
             _ => compare_values(left, right, |a, b| a >= b, |a, b| a >= b),
         },
         CmpOp::In => match right {
@@ -357,10 +372,14 @@ where
         (PyValue::Float(a), PyValue::Float(b)) => Ok(float_cmp(*a, *b)),
         (PyValue::Int(a), PyValue::Float(b)) => Ok(float_cmp(*a as f64, *b)),
         (PyValue::Float(a), PyValue::Int(b)) => Ok(float_cmp(*a, *b as f64)),
-        (PyValue::Str(a), PyValue::Str(b)) => Ok(a.cmp(b) == std::cmp::Ordering::Less
-            && int_cmp(0, 1)
-            || a.cmp(b) == std::cmp::Ordering::Equal && int_cmp(0, 0)
-            || a.cmp(b) == std::cmp::Ordering::Greater && int_cmp(1, 0)),
+        (PyValue::Str(a), PyValue::Str(b)) => {
+            let ord = a.cmp(b);
+            Ok(match ord {
+                std::cmp::Ordering::Less => int_cmp(0, 1),
+                std::cmp::Ordering::Equal => int_cmp(0, 0),
+                std::cmp::Ordering::Greater => int_cmp(1, 0),
+            })
+        }
         (PyValue::Tuple(a), PyValue::Tuple(b)) | (PyValue::List(a), PyValue::List(b)) => {
             // Lexicographic comparison
             for (av, bv) in a.iter().zip(b.iter()) {
@@ -371,10 +390,11 @@ where
                 }
             }
             // All compared elements equal — shorter sequence is "less"
-            let ord = a.len().cmp(&b.len());
-            Ok(ord == std::cmp::Ordering::Less && int_cmp(0, 1)
-                || ord == std::cmp::Ordering::Equal && int_cmp(0, 0)
-                || ord == std::cmp::Ordering::Greater && int_cmp(1, 0))
+            Ok(match a.len().cmp(&b.len()) {
+                std::cmp::Ordering::Less => int_cmp(0, 1),
+                std::cmp::Ordering::Equal => int_cmp(0, 0),
+                std::cmp::Ordering::Greater => int_cmp(1, 0),
+            })
         }
         _ => Err(Error::Type {
             expected: "comparable types".to_string(),

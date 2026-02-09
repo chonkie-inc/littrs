@@ -6,10 +6,8 @@
 //! - I/O: print
 //! - Math: abs
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
 use crate::error::{Error, Result};
+use crate::methods::{arg_float, arg_int, check_args, check_args_range};
 use crate::operators::compare_values;
 use crate::value::PyValue;
 
@@ -74,9 +72,7 @@ pub fn try_builtin(
 }
 
 fn builtin_len(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("len() takes exactly 1 argument".to_string()));
-    }
+    check_args("len", &args, 1)?;
     let arg = &args[0];
     let len = match arg {
         PyValue::Str(s) => s.len(),
@@ -95,16 +91,12 @@ fn builtin_len(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_str(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("str() takes exactly 1 argument".to_string()));
-    }
+    check_args("str", &args, 1)?;
     Ok(PyValue::Str(format!("{}", args[0])))
 }
 
 fn builtin_int(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("int() takes exactly 1 argument".to_string()));
-    }
+    check_args("int", &args, 1)?;
     let arg = &args[0];
     let val = match arg {
         PyValue::Int(i) => *i,
@@ -130,11 +122,7 @@ fn builtin_int(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_float(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "float() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("float", &args, 1)?;
     let arg = &args[0];
     let val = match arg {
         PyValue::Float(f) => *f,
@@ -160,11 +148,7 @@ fn builtin_float(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_bool(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "bool() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("bool", &args, 1)?;
     Ok(PyValue::Bool(args[0].is_truthy()))
 }
 
@@ -172,50 +156,16 @@ fn builtin_list(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
         return Ok(PyValue::List(vec![]));
     }
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "list() takes at most 1 argument".to_string(),
-        ));
-    }
+    check_args("list", &args, 1)?;
     let items = to_iterable_items(&args[0])?;
     Ok(PyValue::List(items))
 }
 
 fn builtin_range(args: Vec<PyValue>) -> Result<PyValue> {
     let (start, stop, step) = match args.len() {
-        1 => (
-            0,
-            args[0].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[0].type_name().to_string(),
-            })?,
-            1,
-        ),
-        2 => (
-            args[0].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[0].type_name().to_string(),
-            })?,
-            args[1].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[1].type_name().to_string(),
-            })?,
-            1,
-        ),
-        3 => (
-            args[0].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[0].type_name().to_string(),
-            })?,
-            args[1].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[1].type_name().to_string(),
-            })?,
-            args[2].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[2].type_name().to_string(),
-            })?,
-        ),
+        1 => (0, arg_int(&args[0])?, 1),
+        2 => (arg_int(&args[0])?, arg_int(&args[1])?, 1),
+        3 => (arg_int(&args[0])?, arg_int(&args[1])?, arg_int(&args[2])?),
         _ => return Err(Error::Runtime("range() takes 1 to 3 arguments".to_string())),
     };
 
@@ -246,9 +196,7 @@ fn builtin_print(args: Vec<PyValue>, print_buffer: &mut Vec<String>) -> Result<P
 }
 
 fn builtin_abs(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("abs() takes exactly 1 argument".to_string()));
-    }
+    check_args("abs", &args, 1)?;
     match &args[0] {
         PyValue::Int(i) => Ok(PyValue::Int(i.abs())),
         PyValue::Float(f) => Ok(PyValue::Float(f.abs())),
@@ -360,19 +308,10 @@ fn find_max(items: &[PyValue]) -> Result<PyValue> {
 }
 
 fn builtin_enumerate(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(Error::Runtime(
-            "enumerate() takes 1 or 2 arguments".to_string(),
-        ));
-    }
-
+    check_args_range("enumerate", &args, 1, 2)?;
     let items = to_iterable_items(&args[0])?;
-
     let start = if args.len() > 1 {
-        args[1].as_int().ok_or_else(|| Error::Type {
-            expected: "int".to_string(),
-            got: args[1].type_name().to_string(),
-        })?
+        arg_int(&args[1])?
     } else {
         0
     };
@@ -407,11 +346,7 @@ fn builtin_zip(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_reversed(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "reversed() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("reversed", &args, 1)?;
 
     let mut items = to_iterable_items(&args[0])?;
     items.reverse();
@@ -419,30 +354,21 @@ fn builtin_reversed(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_any(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("any() takes exactly 1 argument".to_string()));
-    }
+    check_args("any", &args, 1)?;
 
     let items = to_iterable_items(&args[0])?;
     Ok(PyValue::Bool(items.iter().any(|v| v.is_truthy())))
 }
 
 fn builtin_all(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("all() takes exactly 1 argument".to_string()));
-    }
+    check_args("all", &args, 1)?;
 
     let items = to_iterable_items(&args[0])?;
     Ok(PyValue::Bool(items.iter().all(|v| v.is_truthy())))
 }
 
 fn builtin_isinstance(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 2 {
-        return Err(Error::Runtime(
-            "isinstance() takes exactly 2 arguments".to_string(),
-        ));
-    }
-
+    check_args("isinstance", &args, 2)?;
     let type_name = args[1].as_str().ok_or_else(|| Error::Type {
         expected: "str (type name)".to_string(),
         got: args[1].type_name().to_string(),
@@ -465,11 +391,7 @@ fn builtin_isinstance(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_type(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "type() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("type", &args, 1)?;
 
     Ok(PyValue::Str(args[0].type_name().to_string()))
 }
@@ -478,11 +400,7 @@ fn builtin_tuple(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
         return Ok(PyValue::Tuple(vec![]));
     }
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "tuple() takes at most 1 argument".to_string(),
-        ));
-    }
+    check_args("tuple", &args, 1)?;
     let items = to_iterable_items(&args[0])?;
     Ok(PyValue::Tuple(items))
 }
@@ -491,9 +409,7 @@ fn builtin_set(args: Vec<PyValue>) -> Result<PyValue> {
     if args.is_empty() {
         return Ok(PyValue::Set(vec![]));
     }
-    if args.len() != 1 {
-        return Err(Error::Runtime("set() takes at most 1 argument".to_string()));
-    }
+    check_args("set", &args, 1)?;
     let raw_items = to_iterable_items(&args[0])?;
     // Deduplicate and check hashability
     let mut items = Vec::new();
@@ -512,18 +428,12 @@ fn builtin_set(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_repr(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "repr() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("repr", &args, 1)?;
     Ok(PyValue::Str(format!("{}", args[0])))
 }
 
 fn builtin_bin(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("bin() takes exactly 1 argument".to_string()));
-    }
+    check_args("bin", &args, 1)?;
     match &args[0] {
         PyValue::Int(n) => {
             if *n < 0 {
@@ -541,9 +451,7 @@ fn builtin_bin(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_hex(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("hex() takes exactly 1 argument".to_string()));
-    }
+    check_args("hex", &args, 1)?;
     match &args[0] {
         PyValue::Int(n) => {
             if *n < 0 {
@@ -561,9 +469,7 @@ fn builtin_hex(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_oct(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime("oct() takes exactly 1 argument".to_string()));
-    }
+    check_args("oct", &args, 1)?;
     match &args[0] {
         PyValue::Int(n) => {
             if *n < 0 {
@@ -581,11 +487,7 @@ fn builtin_oct(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_divmod(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 2 {
-        return Err(Error::Runtime(
-            "divmod() takes exactly 2 arguments".to_string(),
-        ));
-    }
+    check_args("divmod", &args, 2)?;
     match (&args[0], &args[1]) {
         (PyValue::Int(a), PyValue::Int(b)) => {
             if *b == 0 {
@@ -596,14 +498,8 @@ fn builtin_divmod(args: Vec<PyValue>) -> Result<PyValue> {
             Ok(PyValue::Tuple(vec![PyValue::Int(q), PyValue::Int(r)]))
         }
         (a_val, b_val) => {
-            let a = a_val.as_float().ok_or_else(|| Error::Type {
-                expected: "number".to_string(),
-                got: a_val.type_name().to_string(),
-            })?;
-            let b = b_val.as_float().ok_or_else(|| Error::Type {
-                expected: "number".to_string(),
-                got: b_val.type_name().to_string(),
-            })?;
+            let a = arg_float(a_val)?;
+            let b = arg_float(b_val)?;
             if b == 0.0 {
                 return Err(Error::DivisionByZero);
             }
@@ -627,32 +523,17 @@ fn builtin_pow(args: Vec<PyValue>) -> Result<PyValue> {
                     }
                 }
                 (a, b) => {
-                    let base = a.as_float().ok_or_else(|| Error::Type {
-                        expected: "number".to_string(),
-                        got: a.type_name().to_string(),
-                    })?;
-                    let exp = b.as_float().ok_or_else(|| Error::Type {
-                        expected: "number".to_string(),
-                        got: b.type_name().to_string(),
-                    })?;
+                    let base = arg_float(a)?;
+                    let exp = arg_float(b)?;
                     Ok(PyValue::Float(base.powf(exp)))
                 }
             }
         }
         3 => {
             // 3-arg pow: modular exponentiation, all ints
-            let base = args[0].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[0].type_name().to_string(),
-            })?;
-            let exp = args[1].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[1].type_name().to_string(),
-            })?;
-            let modulus = args[2].as_int().ok_or_else(|| Error::Type {
-                expected: "int".to_string(),
-                got: args[2].type_name().to_string(),
-            })?;
+            let base = arg_int(&args[0])?;
+            let exp = arg_int(&args[1])?;
+            let modulus = arg_int(&args[2])?;
             if modulus == 0 {
                 return Err(Error::Runtime(
                     "ValueError: pow() 3rd argument cannot be 0".to_string(),
@@ -684,52 +565,12 @@ fn builtin_pow(args: Vec<PyValue>) -> Result<PyValue> {
 }
 
 fn builtin_hash(args: Vec<PyValue>) -> Result<PyValue> {
-    if args.len() != 1 {
-        return Err(Error::Runtime(
-            "hash() takes exactly 1 argument".to_string(),
-        ));
-    }
+    check_args("hash", &args, 1)?;
     if !args[0].is_hashable() {
         return Err(Error::Runtime(format!(
             "TypeError: unhashable type: '{}'",
             args[0].type_name()
         )));
     }
-    Ok(PyValue::Int(hash_pyvalue(&args[0]) as i64))
-}
-
-fn hash_pyvalue(val: &PyValue) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    match val {
-        PyValue::None => {
-            0u8.hash(&mut hasher);
-        }
-        PyValue::Bool(b) => {
-            1u8.hash(&mut hasher);
-            b.hash(&mut hasher);
-        }
-        PyValue::Int(i) => {
-            2u8.hash(&mut hasher);
-            i.hash(&mut hasher);
-        }
-        PyValue::Float(f) => {
-            3u8.hash(&mut hasher);
-            f.to_bits().hash(&mut hasher);
-        }
-        PyValue::Str(s) => {
-            4u8.hash(&mut hasher);
-            s.hash(&mut hasher);
-        }
-        PyValue::Tuple(items) => {
-            5u8.hash(&mut hasher);
-            for item in items {
-                hash_pyvalue(item).hash(&mut hasher);
-            }
-        }
-        _ => {
-            // Unreachable if is_hashable() is checked first
-            0u8.hash(&mut hasher);
-        }
-    }
-    hasher.finish()
+    Ok(PyValue::Int(args[0].hash_value() as i64))
 }
