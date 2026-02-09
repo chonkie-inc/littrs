@@ -14,12 +14,10 @@ Contributions welcome on any of these.
 - [x] Support `key=` parameter in `sorted()` (with `reverse=` too)
 - [ ] Support `key=` and `reverse=` parameters in `list.sort()`
 
-### Dict and set comprehensions
+### ~~Dict and set comprehensions~~ ✅
 
-LLMs regularly write `{k: v for k, v in items}` to reshape data and `{x for x in lst}` to deduplicate. Currently only list comprehensions are supported. Dict comprehensions need a `BuildDict` variant at the end of the comprehension loop; set comprehensions need a set type first (see below).
-
-- [ ] Dict comprehensions: `{k: v for k, v in items if condition}`
-- [ ] Set comprehensions: `{x for x in items}` (depends on set type)
+- [x] Dict comprehensions: `{k: v for k, v in items if condition}`
+- [x] Set comprehensions: `{x for x in items}` (depends on set type — already done)
 
 ### Closures and nested scopes
 
@@ -43,12 +41,10 @@ Python's `for`/`else` runs the `else` block only when the loop completes without
 - [ ] `for`/`else`: run else block when loop exits normally (no `break`)
 - [ ] `while`/`else`: same semantics for while loops
 
-### `assert` statement
+### ~~`assert` statement~~ ✅
 
-LLMs use `assert` for quick validation — `assert len(result) > 0`, `assert isinstance(x, "str")`. It is straightforward to implement: evaluate the condition, and if falsy, raise `AssertionError` with an optional message.
-
-- [ ] `assert condition`
-- [ ] `assert condition, "message"`
+- [x] `assert condition`
+- [x] `assert condition, "message"`
 
 ### `try`/`finally`
 

@@ -3301,3 +3301,179 @@ f.close()
     let host_content = std::fs::read_to_string(&path).unwrap();
     assert_eq!(host_content, "hello world");
 }
+
+// -----------------------------------------------------------------------
+// Dict comprehensions
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_dict_comprehension_basic() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox
+        .run("{k: v for k, v in [(1, 2), (3, 4)]}")
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Dict(vec![
+            (PyValue::Int(1), PyValue::Int(2)),
+            (PyValue::Int(3), PyValue::Int(4)),
+        ])
+    );
+}
+
+#[test]
+fn test_dict_comprehension_with_filter() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox
+        .run(
+            r#"
+items = [(1, -1), (2, 5), (3, -2), (4, 10)]
+{k: v for k, v in items if v > 0}
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Dict(vec![
+            (PyValue::Int(2), PyValue::Int(5)),
+            (PyValue::Int(4), PyValue::Int(10)),
+        ])
+    );
+}
+
+#[test]
+fn test_dict_comprehension_with_expression() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox
+        .run(
+            r#"
+items = [("a", 1), ("b", 2), ("c", 3)]
+{k: v * 2 for k, v in items}
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Dict(vec![
+            (PyValue::Str("a".to_string()), PyValue::Int(2)),
+            (PyValue::Str("b".to_string()), PyValue::Int(4)),
+            (PyValue::Str("c".to_string()), PyValue::Int(6)),
+        ])
+    );
+}
+
+#[test]
+fn test_dict_comprehension_from_range() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox.run("{x: x * x for x in range(4)}").unwrap();
+    assert_eq!(
+        result,
+        PyValue::Dict(vec![
+            (PyValue::Int(0), PyValue::Int(0)),
+            (PyValue::Int(1), PyValue::Int(1)),
+            (PyValue::Int(2), PyValue::Int(4)),
+            (PyValue::Int(3), PyValue::Int(9)),
+        ])
+    );
+}
+
+// -----------------------------------------------------------------------
+// Set comprehensions
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_set_comprehension_basic() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox.run("{x for x in [1, 2, 2, 3, 3, 3]}").unwrap();
+    // Set deduplicates
+    assert_eq!(
+        result,
+        PyValue::Set(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_set_comprehension_with_filter() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox
+        .run(
+            r#"
+items = [-2, -1, 0, 1, 2, 3]
+{x for x in items if x > 0}
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Set(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_set_comprehension_with_expression() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox.run("{x * 2 for x in [1, 2, 3]}").unwrap();
+    assert_eq!(
+        result,
+        PyValue::Set(vec![PyValue::Int(2), PyValue::Int(4), PyValue::Int(6)])
+    );
+}
+
+// -----------------------------------------------------------------------
+// Assert statement
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_assert_true_passes() {
+    let mut sandbox = Sandbox::new();
+    // assert True should succeed silently
+    sandbox.run("assert True").unwrap();
+}
+
+#[test]
+fn test_assert_false_raises() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox.run("assert False");
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(err_msg.contains("AssertionError"), "got: {}", err_msg);
+}
+
+#[test]
+fn test_assert_false_with_message() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox.run(r#"assert False, "something went wrong""#);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("AssertionError") && err_msg.contains("something went wrong"),
+        "got: {}",
+        err_msg
+    );
+}
+
+#[test]
+fn test_assert_expression() {
+    let mut sandbox = Sandbox::new();
+    sandbox.run("x = 5").unwrap();
+    sandbox.run("assert x > 0").unwrap();
+    let result = sandbox.run("assert x < 0");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_assert_catchable() {
+    let mut sandbox = Sandbox::new();
+    let result = sandbox
+        .run(
+            r#"
+try:
+    assert False, "oops"
+except AssertionError as e:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}

@@ -409,6 +409,15 @@ impl Compiler {
                 }
             }
 
+            Stmt::Assert(assert_stmt) => {
+                let span = self.stmt_span(stmt);
+                self.compile_assert(assert_stmt, span)?;
+                if is_last {
+                    let none_idx = self.add_const(PyValue::None);
+                    self.emit(Op::LoadConst(none_idx), span);
+                }
+            }
+
             _ => {
                 return Err(Error::Unsupported(format!(
                     "Statement type not supported: {:?}",
@@ -672,6 +681,19 @@ impl Compiler {
                     }
                 }
                 self.emit(Op::BuildString(n_parts), span);
+            }
+
+            Expr::DictComp(dictcomp) => {
+                self.compile_dict_comprehension(
+                    &dictcomp.key,
+                    &dictcomp.value,
+                    &dictcomp.generators,
+                    span,
+                )?;
+            }
+
+            Expr::SetComp(setcomp) => {
+                self.compile_set_comprehension(&setcomp.elt, &setcomp.generators, span)?;
             }
 
             _ => {
@@ -1011,7 +1033,7 @@ impl Compiler {
         self.emit(Op::StoreName(comp_var_idx), span);
 
         // Compile the generators recursively
-        self.compile_comprehension_generators(elt, generators, 0, comp_var_idx, span)?;
+        self.compile_comprehension_generators(elt, generators, 0, comp_var_idx, "append", span)?;
 
         // Load the result
         self.emit(Op::LoadName(comp_var_idx), span);
@@ -1026,6 +1048,7 @@ impl Compiler {
         generators: &[ast::Comprehension],
         gen_index: usize,
         comp_var_idx: u32,
+        append_method: &str,
         span: Span,
     ) -> Result<()> {
         let generator = &generators[gen_index];
@@ -1059,14 +1082,15 @@ impl Compiler {
                 generators,
                 gen_index + 1,
                 comp_var_idx,
+                append_method,
                 span,
             )?;
         } else {
-            // Innermost generator: evaluate element and append to result
-            let append_idx = self.add_name("append");
+            // Innermost generator: evaluate element and append/add to result
+            let method_idx = self.add_name(append_method);
             self.compile_expr(elt)?;
-            self.emit(Op::CallMutMethod(comp_var_idx, append_idx, 1), span);
-            self.emit(Op::Pop, span); // discard None from append
+            self.emit(Op::CallMutMethod(comp_var_idx, method_idx, 1), span);
+            self.emit(Op::Pop, span); // discard None from append/add
         }
 
         // Skip targets: jump back to loop start
@@ -1078,6 +1102,136 @@ impl Compiler {
 
         // Exit loop
         self.patch_jump(exit_jump, self.current_offset());
+
+        Ok(())
+    }
+
+    /// Compile a dict comprehension: `{k: v for k, v in items if cond}`.
+    fn compile_dict_comprehension(
+        &mut self,
+        key: &Expr,
+        value: &Expr,
+        generators: &[ast::Comprehension],
+        span: Span,
+    ) -> Result<()> {
+        let comp_var = format!("__comp_{}", self.comp_counter);
+        self.comp_counter += 1;
+        let comp_var_idx = self.add_name(&comp_var);
+
+        // Initialize empty dict
+        self.emit(Op::BuildDict(0), span);
+        self.emit(Op::StoreName(comp_var_idx), span);
+
+        // Compile the generators recursively
+        self.compile_dict_comprehension_generators(
+            key, value, generators, 0, comp_var_idx, span,
+        )?;
+
+        // Load the result
+        self.emit(Op::LoadName(comp_var_idx), span);
+        Ok(())
+    }
+
+    /// Recursively compile dict comprehension generators.
+    fn compile_dict_comprehension_generators(
+        &mut self,
+        key: &Expr,
+        value: &Expr,
+        generators: &[ast::Comprehension],
+        gen_index: usize,
+        comp_var_idx: u32,
+        span: Span,
+    ) -> Result<()> {
+        let generator = &generators[gen_index];
+
+        if generator.is_async {
+            return Err(Error::Unsupported("Async comprehensions".to_string()));
+        }
+
+        self.compile_expr(&generator.iter)?;
+        self.emit(Op::GetIter, span);
+
+        let loop_start = self.current_offset();
+        let exit_jump = self.emit_jump(Op::ForIter, span);
+
+        self.compile_store_target(&generator.target)?;
+
+        // Compile filter conditions
+        let mut skip_jumps = Vec::new();
+        for condition in &generator.ifs {
+            self.compile_expr(condition)?;
+            let skip = self.emit_jump(Op::PopJumpIfFalse, span);
+            skip_jumps.push(skip);
+        }
+
+        if gen_index + 1 < generators.len() {
+            self.compile_dict_comprehension_generators(
+                key, value, generators, gen_index + 1, comp_var_idx, span,
+            )?;
+        } else {
+            // Innermost: StoreSubscript pops index (key) then value from stack
+            self.compile_expr(value)?;
+            self.compile_expr(key)?;
+            self.emit(Op::StoreSubscript(comp_var_idx), span);
+        }
+
+        for skip in &skip_jumps {
+            self.patch_jump(*skip, self.current_offset());
+        }
+
+        self.emit(Op::Jump(loop_start), span);
+        self.patch_jump(exit_jump, self.current_offset());
+
+        Ok(())
+    }
+
+    /// Compile a set comprehension: `{x for x in items if cond}`.
+    fn compile_set_comprehension(
+        &mut self,
+        elt: &Expr,
+        generators: &[ast::Comprehension],
+        span: Span,
+    ) -> Result<()> {
+        let comp_var = format!("__comp_{}", self.comp_counter);
+        self.comp_counter += 1;
+        let comp_var_idx = self.add_name(&comp_var);
+
+        // Initialize empty set
+        self.emit(Op::BuildSet(0), span);
+        self.emit(Op::StoreName(comp_var_idx), span);
+
+        // Compile the generators recursively (using "add" instead of "append")
+        self.compile_comprehension_generators(elt, generators, 0, comp_var_idx, "add", span)?;
+
+        // Load the result
+        self.emit(Op::LoadName(comp_var_idx), span);
+        Ok(())
+    }
+
+    /// Compile an assert statement.
+    fn compile_assert(&mut self, assert_stmt: &ast::StmtAssert, span: Span) -> Result<()> {
+        // Evaluate the test condition
+        self.compile_expr(&assert_stmt.test)?;
+
+        // If true, jump past the raise
+        let ok_label = self.emit_jump(Op::PopJumpIfTrue, span);
+
+        // Push exception type
+        let type_idx = self.add_const(PyValue::Str("AssertionError".to_string()));
+        self.emit(Op::LoadConst(type_idx), span);
+
+        // Push message (or None)
+        if let Some(ref msg) = assert_stmt.msg {
+            self.compile_expr(msg)?;
+        } else {
+            let none_idx = self.add_const(PyValue::None);
+            self.emit(Op::LoadConst(none_idx), span);
+        }
+
+        self.emit(Op::Raise, span);
+
+        // ok_label: assertion passed
+        self.patch_jump(ok_label, self.current_offset());
 
         Ok(())
     }

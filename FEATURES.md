@@ -23,6 +23,9 @@ Littrs implements enough Python for an LLM to express what it wants to do: call 
 - `while` loops with `break`/`continue`
 - Ternary expressions: `x if condition else y`
 - List comprehensions with filters: `[x*2 for x in items if x > 0]`
+- Dict comprehensions: `{k: v for k, v in items if condition}`
+- Set comprehensions: `{x for x in items if condition}`
+- `assert` statement: `assert condition` / `assert condition, "message"`
 
 ## Functions
 

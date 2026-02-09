@@ -1964,6 +1964,8 @@ fn error_to_exception_type(err: &Error) -> &'static str {
                 "PermissionError"
             } else if msg.starts_with("UnsupportedOperation") {
                 "UnsupportedOperation"
+            } else if msg.starts_with("AssertionError") {
+                "AssertionError"
             } else {
                 "RuntimeError"
             }
