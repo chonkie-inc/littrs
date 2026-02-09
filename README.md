@@ -25,6 +25,7 @@ You register functions as tools, hand the sandbox some LLM-generated code, and g
 * **Stdout capture** — `print()` output collected and returned separately from the result
 * **Auto-generated tool docs** — `describe()` produces Python-style signatures and docstrings, ready to paste into a system prompt
 * **Built-in modules** — `json`, `math`, and `typing` available out of the box with `Sandbox(builtins=True)` / `Sandbox::with_builtins()`. Register custom modules with `.module()`
+* **File mounting** — mount host files into the sandbox with read-only or read-write access. Sandbox code uses `open()` to read/write; writes persist back to the host. `sandbox.files()` lets you inspect current writable file contents
 * **WASM isolation** — optional stronger sandboxing via an embedded wasmtime guest module with memory and fuel limits
 * **Fast startup** — no interpreter boot, no runtime to load. Create a sandbox, register tools, run code
 
@@ -152,6 +153,30 @@ Register custom modules with `.module()`:
 sandbox.module("config", {"version": "1.0", "debug": False})
 sandbox("import config; config.version")  # "1.0"
 ```
+
+#### File Mounting
+
+Mount host files into the sandbox so LLM-generated code can read input and write output without full filesystem access:
+
+```python
+sandbox.mount("data.json", "./data/input.json")                    # read-only (default)
+sandbox.mount("output.txt", "./output/result.txt", writable=True)  # read-write
+
+result = sandbox("""
+f = open("data.json")
+data = f.read()
+f.close()
+
+f = open("output.txt", "w")
+f.write("processed: " + data)
+f.close()
+""")
+
+# Inspect written files from the host
+sandbox.files()  # {"output.txt": "processed: ..."}
+```
+
+Unmounted paths raise `FileNotFoundError`; writing to read-only mounts raises `PermissionError`. Both are catchable with `try`/`except` inside the sandbox.
 
 #### WASM Sandbox (Stronger Isolation)
 
@@ -292,6 +317,32 @@ sandbox.module("config", |m| {
 let result = sandbox.run("import config; config.version").unwrap();
 assert_eq!(result, PyValue::Str("1.0".into()));
 ```
+
+#### File Mounting
+
+Mount host files into the sandbox for controlled file I/O:
+
+```rust
+use littrs::{Sandbox, PyValue};
+
+let mut sandbox = Sandbox::new();
+sandbox.mount("data.json", "./data/input.json", false);      // read-only
+sandbox.mount("output.txt", "./output/result.txt", true);     // read-write
+
+sandbox.run(r#"
+f = open("data.json")
+content = f.read()
+f.close()
+
+f = open("output.txt", "w")
+f.write("processed")
+f.close()
+"#).unwrap();
+
+let files = sandbox.files();  // {"output.txt": "processed"}
+```
+
+Unmounted paths raise `FileNotFoundError`; writing to read-only mounts raises `PermissionError`. Both are catchable inside the sandbox with `try`/`except`.
 
 ## Alternatives
 

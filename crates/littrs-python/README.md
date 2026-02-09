@@ -102,6 +102,30 @@ def fetch_data(args):
 sandbox.register("fetch_data", fetch_data)
 ```
 
+## File Mounting
+
+Mount host files into the sandbox so LLM-generated code can read input and write output without full filesystem access:
+
+```python
+sandbox.mount("data.json", "./data/input.json")                    # read-only (default)
+sandbox.mount("output.txt", "./output/result.txt", writable=True)  # read-write
+
+result = sandbox("""
+f = open("data.json")
+data = f.read()
+f.close()
+
+f = open("output.txt", "w")
+f.write("processed: " + data)
+f.close()
+""")
+
+# Inspect written files from the host
+sandbox.files()  # {"output.txt": "processed: ..."}
+```
+
+Unmounted paths raise `FileNotFoundError`; writing to read-only mounts raises `PermissionError`. Both are catchable with `try`/`except` inside the sandbox.
+
 ## WASM Sandbox (Stronger Isolation)
 
 For stronger isolation, Littrs can run the interpreter inside a WebAssembly guest module with memory isolation and fuel-based computation limits:
@@ -116,7 +140,7 @@ result = sandbox.run("sum(range(100))")
 assert result == 4950
 ```
 
-Littrs does not support `import`, third-party packages, classes, closures, `async`/`await`, `finally`, or `match`. See the full list of [supported Python features](https://github.com/chonkie-inc/littrs/blob/main/FEATURES.md).
+Littrs does not support third-party packages, classes, closures, `async`/`await`, `finally`, or `match`. See the full list of [supported Python features](https://github.com/chonkie-inc/littrs/blob/main/FEATURES.md).
 
 ## Citation
 

@@ -79,6 +79,41 @@ Available when using `Sandbox::with_builtins()` (Rust) or `Sandbox(builtins=True
 | `math` | `pi`, `e`, `inf`, `nan`, `tau`, `sqrt`, `floor`, `ceil`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `fabs`, `pow`, `exp`, `isnan`, `isinf`, `degrees`, `radians`, `trunc`, `gcd`, `factorial` |
 | `typing` | `Any`, `Union`, `Optional`, `List`, `Dict`, `Tuple`, `Set`, `Callable`, `Type`, `Literal`, `TypeVar`, `Generic`, `Protocol`, `NamedTuple`, `TypedDict`, and more (all no-ops at runtime) |
 
+## Virtual Filesystem
+
+The host can mount files into the sandbox with read-only or read-write access. Sandbox code uses standard `open()` to interact with mounted files. Unmounted paths raise `FileNotFoundError`; writing to read-only files raises `PermissionError`.
+
+```python
+# Host side
+sandbox.mount("data.json", "./data/input.json")                   # read-only (default)
+sandbox.mount("output.txt", "./output/result.txt", writable=True)  # read-write
+
+# Sandbox code
+f = open("data.json")
+content = f.read()
+f.close()
+
+f = open("output.txt", "w")
+f.write("result")
+f.close()
+
+# Host side — inspect written files
+sandbox.files()  # {"output.txt": "result"}
+```
+
+### File Methods
+
+`.read()`, `.readline()`, `.readlines()`, `.write(s)`, `.close()`
+
+### File Errors
+
+| Error | When |
+|-------|------|
+| `FileNotFoundError` | `open()` on an unmounted path |
+| `PermissionError` | `open(path, "w")` on a read-only mount |
+| `UnsupportedOperation` | `.read()` on a write-mode file, `.write()` on a read-mode file |
+| `ValueError` | Any operation on a closed file |
+
 ## Built-in Functions
 
-`len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `range()`, `abs()`, `min()`, `max()`, `sum()`, `print()`, `type()`, `isinstance()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `dict()`, `tuple()`, `set()`, `round()`, `map()`, `filter()`, `any()`, `all()`, `chr()`, `ord()`
+`len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `range()`, `abs()`, `min()`, `max()`, `sum()`, `print()`, `type()`, `isinstance()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `dict()`, `tuple()`, `set()`, `round()`, `map()`, `filter()`, `any()`, `all()`, `chr()`, `ord()`, `open()`
