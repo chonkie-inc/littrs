@@ -63,6 +63,22 @@ items[::2]    # [1, 3, 5]
 items[::-1]   # [5, 4, 3, 2, 1]
 ```
 
+## Imports
+
+- `import module` / `import module as alias`
+- `from module import name` / `from module import name as alias`
+- Custom module registration via `sandbox.module()`
+
+### Built-in Modules
+
+Available when using `Sandbox::with_builtins()` (Rust) or `Sandbox(builtins=True)` (Python):
+
+| Module | Contents |
+|--------|----------|
+| `json` | `loads(s)`, `dumps(obj)` |
+| `math` | `pi`, `e`, `inf`, `nan`, `tau`, `sqrt`, `floor`, `ceil`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `fabs`, `pow`, `exp`, `isnan`, `isinf`, `degrees`, `radians`, `trunc`, `gcd`, `factorial` |
+| `typing` | `Any`, `Union`, `Optional`, `List`, `Dict`, `Tuple`, `Set`, `Callable`, `Type`, `Literal`, `TypeVar`, `Generic`, `Protocol`, `NamedTuple`, `TypedDict`, and more (all no-ops at runtime) |
+
 ## Built-in Functions
 
 `len()`, `str()`, `int()`, `float()`, `bool()`, `list()`, `range()`, `abs()`, `min()`, `max()`, `sum()`, `print()`, `type()`, `isinstance()`, `enumerate()`, `zip()`, `sorted()`, `reversed()`, `dict()`, `tuple()`, `set()`, `round()`, `map()`, `filter()`, `any()`, `all()`, `chr()`, `ord()`
