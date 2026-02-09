@@ -377,6 +377,6 @@ If you use Littrs in your research, please cite it as:
   author = {Chonkie Inc.},
   url = {https://github.com/chonkie-inc/littrs},
   license = {Apache-2.0},
-  year = {2025}
+  year = {2025-2026}
 }
 ```

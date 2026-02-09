@@ -80,7 +80,7 @@ Currently, `except ValueError` only catches errors whose type name is exactly `"
 - [x] `set()` builtin constructor
 - [x] Methods: `add`, `remove`, `discard`, `pop`, `union`, `intersection`, `difference`, `symmetric_difference`, `issubset`, `issuperset`, `clear`, `update`
 - [x] `in` / `not in` membership testing
-- [ ] `isdisjoint`, `copy` methods
+- [x] `isdisjoint`, `copy` methods
 - [ ] `frozenset()` (immutable variant)
 
 ### ~~Real tuple type~~ ✅

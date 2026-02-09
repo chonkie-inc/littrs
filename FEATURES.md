@@ -55,7 +55,7 @@ f"hello {name}!"  # "hello world!"
 
 ## List/Dict/Set Methods
 
-`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.sort()` (with `key=` and `reverse=`), `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`
+`.append()`, `.pop()`, `.extend()`, `.insert()`, `.remove()`, `.index()`, `.count()`, `.sort()` (with `key=` and `reverse=`), `.copy()`, `.keys()`, `.values()`, `.items()`, `.get()`, `.update()`, `.setdefault()`, `.clear()`, `.add()`, `.discard()`, `.union()`, `.intersection()`, `.difference()`, `.symmetric_difference()`, `.issubset()`, `.issuperset()`, `.isdisjoint()`
 
 ## Slicing
 

@@ -1,6 +1,6 @@
 [package]
 name = "littrs-ruff-python-parser"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 description = "Vendored ruff_python_parser for littrs (from github.com/astral-sh/ruff)"
@@ -10,9 +10,9 @@ repository = "https://github.com/chonkie-inc/littrs"
 name = "ruff_python_parser"
 
 [dependencies]
-littrs-ruff-python-ast = { version = "0.5.3", path = "../ruff_python_ast", features = ["get-size"] }
-littrs-ruff-python-trivia = { version = "0.5.3", path = "../ruff_python_trivia" }
-littrs-ruff-text-size = { version = "0.5.3", path = "../ruff_text_size", features = ["get-size"] }
+littrs-ruff-python-ast = { version = "0.6.0", path = "../ruff_python_ast", features = ["get-size"] }
+littrs-ruff-python-trivia = { version = "0.6.0", path = "../ruff_python_trivia" }
+littrs-ruff-text-size = { version = "0.6.0", path = "../ruff_text_size", features = ["get-size"] }
 
 bitflags = "2"
 bstr = "1"

@@ -1,6 +1,6 @@
 [package]
 name = "littrs-ruff-source-file"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 description = "Vendored ruff_source_file for littrs (from github.com/astral-sh/ruff)"
@@ -10,7 +10,7 @@ repository = "https://github.com/chonkie-inc/littrs"
 name = "ruff_source_file"
 
 [dependencies]
-littrs-ruff-text-size = { version = "0.5.3", path = "../ruff_text_size" }
+littrs-ruff-text-size = { version = "0.6.0", path = "../ruff_text_size" }
 
 get-size2 = { version = "0.7", optional = true, features = ["derive", "compact-str"] }
 memchr = "2"
