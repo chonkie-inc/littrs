@@ -57,6 +57,9 @@ fn pyvalue_to_py(py: Python<'_>, value: &PyValue) -> PyObject {
         PyValue::NativeFunction(key) => format!("<built-in function {}>", key)
             .into_py_any(py)
             .unwrap(),
+        PyValue::File(handle) => format!("<file handle={}>", handle)
+            .into_py_any(py)
+            .unwrap(),
     }
 }
 
@@ -323,6 +326,43 @@ impl Sandbox {
     /// Returns Python-style function signatures and docstrings.
     fn describe(&self) -> String {
         self.inner.describe()
+    }
+
+    /// Mount a virtual file visible to sandbox code.
+    ///
+    /// The file content is read from host_path at mount time. If writable
+    /// is True, sandbox code can open the file in write mode and writes
+    /// will be persisted back to host_path.
+    ///
+    /// Args:
+    ///     virtual_path: The filename visible inside the sandbox.
+    ///     host_path: The real filesystem path on the host.
+    ///     writable: Whether sandbox code can write to this file (default: False).
+    ///
+    /// Example:
+    ///     >>> sandbox.mount("data.json", "./data/input.json")
+    ///     >>> sandbox.mount("output.txt", "./output/result.txt", writable=True)
+    #[pyo3(signature = (virtual_path, host_path, writable=false))]
+    fn mount(&mut self, virtual_path: &str, host_path: &str, writable: bool) {
+        self.inner.mount(virtual_path, host_path, writable);
+    }
+
+    /// Get current contents of all writable mounted files.
+    ///
+    /// Returns a dict mapping virtual paths to their current content.
+    ///
+    /// Example:
+    ///     >>> sandbox.mount("output.txt", "./output.txt", writable=True)
+    ///     >>> sandbox.run('f = open("output.txt", "w"); f.write("hello"); f.close()')
+    ///     >>> sandbox.files()
+    ///     {'output.txt': 'hello'}
+    fn files(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let files = self.inner.files();
+        let dict = PyDict::new(py);
+        for (k, v) in files {
+            dict.set_item(k, v)?;
+        }
+        Ok(dict.into_any().unbind())
     }
 }
 

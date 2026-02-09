@@ -81,8 +81,13 @@
 //! - Class definitions
 //! - Async/await
 //! - `finally` blocks
-//! - File I/O
 //! - Relative imports
+//!
+//! ## Virtual Filesystem
+//!
+//! File I/O is supported via mounted virtual files. The host can mount files
+//! using [`Sandbox::mount`], and sandbox code can use `open()` to read/write
+//! them. Unmounted paths raise `FileNotFoundError`.
 
 mod builtins;
 mod bytecode;

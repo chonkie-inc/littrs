@@ -100,7 +100,7 @@ fn pyvalue_to_json_value(val: &PyValue) -> serde_json::Value {
         PyValue::Set(items) => {
             serde_json::Value::Array(items.iter().map(pyvalue_to_json_value).collect())
         }
-        PyValue::Function(_) | PyValue::Module { .. } | PyValue::NativeFunction(_) => {
+        PyValue::Function(_) | PyValue::Module { .. } | PyValue::NativeFunction(_) | PyValue::File(_) => {
             serde_json::Value::Null
         }
     }

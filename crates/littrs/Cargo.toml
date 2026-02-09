@@ -23,6 +23,7 @@ littrs-macros = { workspace = true, optional = true }
 [dev-dependencies]
 pretty_assertions = "1"
 littrs-macros.workspace = true
+tempfile = "3"
 
 [features]
 default = []

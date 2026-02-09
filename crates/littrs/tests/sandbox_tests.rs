@@ -2976,3 +2976,328 @@ fn test_with_builtins_has_all_modules() {
     sandbox.run("import math").unwrap();
     sandbox.run("import typing").unwrap();
 }
+
+// ============================================================================
+// Virtual Filesystem / File Mounting tests
+// ============================================================================
+
+#[test]
+fn test_mount_read_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("input.txt");
+    std::fs::write(&path, "hello world").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("input.txt", path.to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+f = open("input.txt")
+content = f.read()
+f.close()
+content
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("hello world".to_string()));
+}
+
+#[test]
+fn test_mount_write_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("output.txt");
+    std::fs::write(&path, "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("output.txt", path.to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+f = open("output.txt", "w")
+f.write("result data")
+f.close()
+"#,
+        )
+        .unwrap();
+
+    // Verify write-through to host file
+    let host_content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(host_content, "result data");
+
+    // Verify via sandbox.files()
+    let files = sandbox.files();
+    assert_eq!(files.get("output.txt").unwrap(), "result data");
+}
+
+#[test]
+fn test_open_nonexistent_file_not_found() {
+    let mut sandbox = Sandbox::new();
+
+    let err = sandbox.run(r#"open("nonexistent.txt")"#).unwrap_err();
+    assert!(
+        err.to_string().contains("FileNotFoundError"),
+        "Expected FileNotFoundError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_open_readonly_file_write_permission_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("readonly.txt");
+    std::fs::write(&path, "data").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("readonly.txt", path.to_str().unwrap(), false);
+
+    let err = sandbox
+        .run(r#"open("readonly.txt", "w")"#)
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("PermissionError"),
+        "Expected PermissionError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_read_on_write_mode_unsupported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("output.txt");
+    std::fs::write(&path, "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("output.txt", path.to_str().unwrap(), true);
+
+    let err = sandbox
+        .run(
+            r#"
+f = open("output.txt", "w")
+f.read()
+"#,
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("UnsupportedOperation"),
+        "Expected UnsupportedOperation, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_write_on_read_mode_unsupported() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("input.txt");
+    std::fs::write(&path, "data").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("input.txt", path.to_str().unwrap(), false);
+
+    let err = sandbox
+        .run(
+            r#"
+f = open("input.txt")
+f.write("bad")
+"#,
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("UnsupportedOperation"),
+        "Expected UnsupportedOperation, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_operation_on_closed_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("input.txt");
+    std::fs::write(&path, "data").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("input.txt", path.to_str().unwrap(), false);
+
+    let err = sandbox
+        .run(
+            r#"
+f = open("input.txt")
+f.close()
+f.read()
+"#,
+        )
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("ValueError"),
+        "Expected ValueError for closed file, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_file_readline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lines.txt");
+    std::fs::write(&path, "line1\nline2\nline3").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("lines.txt", path.to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+f = open("lines.txt")
+first = f.readline()
+second = f.readline()
+f.close()
+[first, second]
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Str("line1\n".to_string()),
+            PyValue::Str("line2\n".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_file_readlines() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("lines.txt");
+    std::fs::write(&path, "a\nb\nc").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("lines.txt", path.to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+f = open("lines.txt")
+lines = f.readlines()
+f.close()
+lines
+"#,
+        )
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![
+            PyValue::Str("a\n".to_string()),
+            PyValue::Str("b\n".to_string()),
+            PyValue::Str("c".to_string()),
+        ])
+    );
+}
+
+#[test]
+fn test_files_returns_only_writable() {
+    let dir = tempfile::tempdir().unwrap();
+    let rpath = dir.path().join("read.txt");
+    let wpath = dir.path().join("write.txt");
+    std::fs::write(&rpath, "readonly content").unwrap();
+    std::fs::write(&wpath, "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("read.txt", rpath.to_str().unwrap(), false);
+    sandbox.mount("write.txt", wpath.to_str().unwrap(), true);
+
+    let files = sandbox.files();
+    assert!(files.contains_key("write.txt"));
+    assert!(!files.contains_key("read.txt"));
+}
+
+#[test]
+fn test_file_not_found_catchable() {
+    let mut sandbox = Sandbox::new();
+
+    let result = sandbox
+        .run(
+            r#"
+result = "not caught"
+try:
+    open("missing.txt")
+except FileNotFoundError:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}
+
+#[test]
+fn test_permission_error_catchable() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("readonly.txt");
+    std::fs::write(&path, "data").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("readonly.txt", path.to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+result = "not caught"
+try:
+    open("readonly.txt", "w")
+except PermissionError:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}
+
+#[test]
+fn test_write_returns_char_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("output.txt");
+    std::fs::write(&path, "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("output.txt", path.to_str().unwrap(), true);
+
+    let result = sandbox
+        .run(
+            r#"
+f = open("output.txt", "w")
+count = f.write("hello")
+f.close()
+count
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(5));
+}
+
+#[test]
+fn test_multiple_writes_accumulate() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("output.txt");
+    std::fs::write(&path, "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("output.txt", path.to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+f = open("output.txt", "w")
+f.write("hello ")
+f.write("world")
+f.close()
+"#,
+        )
+        .unwrap();
+
+    let files = sandbox.files();
+    assert_eq!(files.get("output.txt").unwrap(), "hello world");
+
+    let host_content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(host_content, "hello world");
+}

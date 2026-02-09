@@ -43,6 +43,32 @@ struct RegisteredTool {
     info: Option<ToolInfo>,
 }
 
+/// A mounted virtual file definition.
+#[derive(Clone, Debug)]
+pub struct MountEntry {
+    /// Host filesystem path (for write-through).
+    pub host_path: String,
+    /// Whether the file is writable from sandbox code.
+    pub writable: bool,
+    /// File content read at mount time (or accumulated via writes).
+    pub content: String,
+}
+
+/// Runtime state of an open file handle.
+#[derive(Clone, Debug)]
+struct FileState {
+    /// The virtual path this file was opened with.
+    virtual_path: String,
+    /// Current buffer contents.
+    buffer: String,
+    /// Cursor position for reading.
+    cursor: usize,
+    /// Whether the file was opened in write mode.
+    write_mode: bool,
+    /// Whether the file has been closed.
+    closed: bool,
+}
+
 /// State of a single iterator (used by `for` loops and comprehensions).
 struct IterState {
     items: Vec<PyValue>,
@@ -95,6 +121,12 @@ pub struct Vm {
     instruction_count: u64,
     /// Stack of active exceptions (for try/except handling).
     exception_stack: Vec<ExceptionState>,
+    /// Mounted virtual files (virtual path → mount entry).
+    mounts: HashMap<String, MountEntry>,
+    /// Open file handles (handle id → file state).
+    open_files: HashMap<u64, FileState>,
+    /// Next file handle id to allocate.
+    next_file_handle: u64,
 }
 
 // We implement Clone manually for the parts that need it, but CallFrame
@@ -114,6 +146,9 @@ impl Vm {
             recursion_limit: None,
             instruction_count: 0,
             exception_stack: Vec::new(),
+            mounts: HashMap::new(),
+            open_files: HashMap::new(),
+            next_file_handle: 0,
         }
     }
 
@@ -166,6 +201,27 @@ impl Vm {
     pub fn set_limits(&mut self, instruction_limit: Option<u64>, recursion_limit: Option<usize>) {
         self.instruction_limit = instruction_limit;
         self.recursion_limit = recursion_limit;
+    }
+
+    /// Mount a virtual file visible to sandbox code.
+    ///
+    /// `content` is the initial file content (read from host at mount time).
+    /// If `writable` is true, sandbox code can open the file in write mode.
+    pub fn mount(&mut self, virtual_path: String, host_path: String, writable: bool, content: String) {
+        self.mounts.insert(virtual_path, MountEntry {
+            host_path,
+            writable,
+            content,
+        });
+    }
+
+    /// Get current contents of all writable mounted files.
+    pub fn get_writable_files(&self) -> HashMap<String, String> {
+        self.mounts
+            .iter()
+            .filter(|(_, entry)| entry.writable)
+            .map(|(path, entry)| (path.clone(), entry.content.clone()))
+            .collect()
     }
 
     /// Execute a compiled [`CodeObject`].
@@ -948,7 +1004,7 @@ impl Vm {
         let start = self.stack.len() - n_pos;
         let pos_args: Vec<PyValue> = self.stack.drain(start..).collect();
 
-        // 0. Callable-aware builtins (sorted, map, filter)
+        // 0. Callable-aware builtins (sorted, map, filter, open)
         match name {
             "sorted" => {
                 let result = self.builtin_sorted(frames, pos_args, kw_pairs)?;
@@ -962,6 +1018,11 @@ impl Vm {
             }
             "filter" if n_kw == 0 => {
                 let result = self.builtin_filter(frames, pos_args)?;
+                self.stack.push(result);
+                return Ok(());
+            }
+            "open" if n_kw == 0 => {
+                let result = self.builtin_open(pos_args)?;
                 self.stack.push(result);
                 return Ok(());
             }
@@ -1376,6 +1437,197 @@ impl Vm {
         Ok(PyValue::List(results))
     }
 
+    // -----------------------------------------------------------------------
+    // File I/O builtins
+    // -----------------------------------------------------------------------
+
+    /// Implement the `open()` builtin for mounted virtual files.
+    fn builtin_open(&mut self, args: Vec<PyValue>) -> Result<PyValue> {
+        let path = match args.first() {
+            Some(PyValue::Str(s)) => s.clone(),
+            _ => {
+                return Err(Error::Runtime(
+                    "TypeError: open() argument must be a string".to_string(),
+                ));
+            }
+        };
+
+        let mode = match args.get(1) {
+            Some(PyValue::Str(s)) => s.clone(),
+            None => "r".to_string(),
+            _ => {
+                return Err(Error::Runtime(
+                    "TypeError: open() mode must be a string".to_string(),
+                ));
+            }
+        };
+
+        let entry = match self.mounts.get(&path) {
+            Some(e) => e.clone(),
+            None => {
+                return Err(Error::Runtime(format!(
+                    "FileNotFoundError: [Errno 2] No such file or directory: '{}'",
+                    path
+                )));
+            }
+        };
+
+        let write_mode = mode.contains('w') || mode.contains('a');
+
+        if write_mode && !entry.writable {
+            return Err(Error::Runtime(format!(
+                "PermissionError: [Errno 13] Permission denied: '{}'",
+                path
+            )));
+        }
+
+        let handle = self.next_file_handle;
+        self.next_file_handle += 1;
+
+        let buffer = if write_mode {
+            String::new()
+        } else {
+            entry.content.clone()
+        };
+
+        self.open_files.insert(
+            handle,
+            FileState {
+                virtual_path: path,
+                buffer,
+                cursor: 0,
+                write_mode,
+                closed: false,
+            },
+        );
+
+        Ok(PyValue::File(handle))
+    }
+
+    /// Dispatch a method call on a file handle.
+    fn call_file_method(
+        &mut self,
+        handle: u64,
+        method: &str,
+        args: Vec<PyValue>,
+    ) -> Result<PyValue> {
+        // Check if handle exists
+        let file = match self.open_files.get(&handle) {
+            Some(f) => f,
+            None => {
+                return Err(Error::Runtime(
+                    "ValueError: I/O operation on closed file".to_string(),
+                ));
+            }
+        };
+
+        if file.closed {
+            return Err(Error::Runtime(
+                "ValueError: I/O operation on closed file".to_string(),
+            ));
+        }
+
+        match method {
+            "read" => {
+                if file.write_mode {
+                    return Err(Error::Runtime(
+                        "UnsupportedOperation: not readable".to_string(),
+                    ));
+                }
+                let content = file.buffer[file.cursor..].to_string();
+                let len = file.buffer.len();
+                self.open_files.get_mut(&handle).unwrap().cursor = len;
+                Ok(PyValue::Str(content))
+            }
+            "readline" => {
+                if file.write_mode {
+                    return Err(Error::Runtime(
+                        "UnsupportedOperation: not readable".to_string(),
+                    ));
+                }
+                let remaining = &file.buffer[file.cursor..];
+                let line = if let Some(pos) = remaining.find('\n') {
+                    remaining[..=pos].to_string()
+                } else {
+                    remaining.to_string()
+                };
+                let advance = line.len();
+                self.open_files.get_mut(&handle).unwrap().cursor += advance;
+                Ok(PyValue::Str(line))
+            }
+            "readlines" => {
+                if file.write_mode {
+                    return Err(Error::Runtime(
+                        "UnsupportedOperation: not readable".to_string(),
+                    ));
+                }
+                let remaining = file.buffer[file.cursor..].to_string();
+                let len = file.buffer.len();
+                self.open_files.get_mut(&handle).unwrap().cursor = len;
+                let lines: Vec<PyValue> = if remaining.is_empty() {
+                    Vec::new()
+                } else {
+                    remaining
+                        .split_inclusive('\n')
+                        .map(|line| PyValue::Str(line.to_string()))
+                        .collect()
+                };
+                Ok(PyValue::List(lines))
+            }
+            "write" => {
+                if !file.write_mode {
+                    return Err(Error::Runtime(
+                        "UnsupportedOperation: not writable".to_string(),
+                    ));
+                }
+                let text = match args.first() {
+                    Some(PyValue::Str(s)) => s.clone(),
+                    _ => {
+                        return Err(Error::Runtime(
+                            "TypeError: write() argument must be a string".to_string(),
+                        ));
+                    }
+                };
+                let count = text.len() as i64;
+                let vpath = file.virtual_path.clone();
+
+                let file_mut = self.open_files.get_mut(&handle).unwrap();
+                file_mut.buffer.push_str(&text);
+
+                // Write-through: update mount content
+                let new_content = file_mut.buffer.clone();
+                if let Some(mount) = self.mounts.get_mut(&vpath) {
+                    mount.content = new_content.clone();
+                    // Write to host path
+                    let _ = std::fs::write(&mount.host_path, &new_content);
+                }
+
+                Ok(PyValue::Int(count))
+            }
+            "close" => {
+                let vpath = file.virtual_path.clone();
+                let is_write = file.write_mode;
+                let file_mut = self.open_files.get_mut(&handle).unwrap();
+                file_mut.closed = true;
+
+                // Final flush on close for write mode
+                if is_write {
+                    let content = file_mut.buffer.clone();
+                    if let Some(mount) = self.mounts.get_mut(&vpath) {
+                        mount.content = content.clone();
+                        let _ = std::fs::write(&mount.host_path, &content);
+                    }
+                }
+
+                Ok(PyValue::None)
+            }
+            _ => Err(Error::Runtime(format!(
+                "AttributeError: '_io.TextIOWrapper' object has no attribute '{}'",
+                method
+            ))),
+        }
+    }
+
     /// Call a registered tool, mapping keyword arguments and validating types.
     fn call_tool(
         &self,
@@ -1461,6 +1713,13 @@ impl Vm {
         let args_start = self.stack.len() - n_args;
         let args: Vec<PyValue> = self.stack.drain(args_start..).collect();
         let object = self.stack.pop().unwrap_or(PyValue::None);
+
+        // File handle methods — dispatch before type-based dispatch
+        if let PyValue::File(handle) = &object {
+            let result = self.call_file_method(*handle, method, args)?;
+            self.stack.push(result);
+            return Ok(());
+        }
 
         match &object {
             PyValue::Module { name, attrs } => {
@@ -1699,6 +1958,12 @@ fn error_to_exception_type(err: &Error) -> &'static str {
                 "IndexError"
             } else if msg.contains("KeyError") {
                 "KeyError"
+            } else if msg.starts_with("FileNotFoundError") {
+                "FileNotFoundError"
+            } else if msg.starts_with("PermissionError") {
+                "PermissionError"
+            } else if msg.starts_with("UnsupportedOperation") {
+                "UnsupportedOperation"
             } else {
                 "RuntimeError"
             }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::compiler::Compiler;
@@ -417,6 +418,56 @@ impl Sandbox {
     /// calling `run()` multiple times.
     pub fn flush(&mut self) -> Vec<String> {
         self.vm.take_print_output()
+    }
+
+    /// Mount a virtual file visible to sandbox code.
+    ///
+    /// The file content is read from `host_path` at mount time. If `writable`
+    /// is true, sandbox code can open the file in write mode and writes will
+    /// be persisted back to `host_path`.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use littrs::Sandbox;
+    ///
+    /// let mut sandbox = Sandbox::new();
+    /// sandbox.mount("data.json", "./data/input.json", false);
+    /// sandbox.mount("output.txt", "./output/result.txt", true);
+    /// ```
+    pub fn mount(
+        &mut self,
+        virtual_path: impl Into<String>,
+        host_path: impl Into<String>,
+        writable: bool,
+    ) {
+        let host = host_path.into();
+        let content = std::fs::read_to_string(&host).unwrap_or_default();
+        self.vm
+            .mount(virtual_path.into(), host, writable, content);
+    }
+
+    /// Get current contents of all writable mounted files.
+    ///
+    /// Returns a map from virtual path to current file content.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use littrs::Sandbox;
+    ///
+    /// let mut sandbox = Sandbox::new();
+    /// sandbox.mount("output.txt", "./output.txt", true);
+    /// sandbox.run(r#"
+    /// f = open("output.txt", "w")
+    /// f.write("hello")
+    /// f.close()
+    /// "#).unwrap();
+    /// let files = sandbox.files();
+    /// assert_eq!(files.get("output.txt").unwrap(), "hello");
+    /// ```
+    pub fn files(&self) -> HashMap<String, String> {
+        self.vm.get_writable_files()
     }
 }
 

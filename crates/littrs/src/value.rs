@@ -78,6 +78,9 @@ pub enum PyValue {
     /// A native function reference (key into VM's tools registry).
     #[cfg_attr(feature = "serde", serde(skip))]
     NativeFunction(String),
+    /// A file handle (index into VM's open_files table).
+    #[cfg_attr(feature = "serde", serde(skip))]
+    File(u64),
 }
 
 impl PartialEq for PyValue {
@@ -92,10 +95,11 @@ impl PartialEq for PyValue {
             (PyValue::Tuple(a), PyValue::Tuple(b)) => a == b,
             (PyValue::Dict(a), PyValue::Dict(b)) => a == b,
             (PyValue::Set(a), PyValue::Set(b)) => a == b,
-            // Functions/modules/native functions are never equal (identity semantics)
+            // Functions/modules/native functions/files are never equal (identity semantics)
             (PyValue::Function(_), PyValue::Function(_)) => false,
             (PyValue::Module { .. }, PyValue::Module { .. }) => false,
             (PyValue::NativeFunction(_), PyValue::NativeFunction(_)) => false,
+            (PyValue::File(_), PyValue::File(_)) => false,
             _ => false,
         }
     }
@@ -116,6 +120,7 @@ impl PyValue {
             PyValue::Function(_) => "function",
             PyValue::Module { .. } => "module",
             PyValue::NativeFunction(_) => "builtin_function_or_method",
+            PyValue::File(_) => "file",
         }
     }
 
@@ -133,6 +138,7 @@ impl PyValue {
             PyValue::Function(_) => true,
             PyValue::Module { .. } => true,
             PyValue::NativeFunction(_) => true,
+            PyValue::File(_) => true,
         }
     }
 
@@ -150,7 +156,8 @@ impl PyValue {
             | PyValue::Set(_)
             | PyValue::Function(_)
             | PyValue::Module { .. }
-            | PyValue::NativeFunction(_) => false,
+            | PyValue::NativeFunction(_)
+            | PyValue::File(_) => false,
         }
     }
 
@@ -235,6 +242,7 @@ impl PyValue {
             }
             PyValue::Module { name, .. } => format!("<module '{}'>", name),
             PyValue::NativeFunction(key) => format!("<built-in function {}>", key),
+            PyValue::File(handle) => format!("<file handle={}>", handle),
         }
     }
 }
@@ -309,6 +317,7 @@ impl fmt::Display for PyValue {
             }
             PyValue::Module { name, .. } => write!(f, "<module '{}'>", name),
             PyValue::NativeFunction(key) => write!(f, "<built-in function {}>", key),
+            PyValue::File(handle) => write!(f, "<file handle={}>", handle),
         }
     }
 }
