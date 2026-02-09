@@ -70,14 +70,19 @@
 //! - `range()`, `abs()`, `min()`, `max()`, `sum()`
 //! - `print()` (output captured via `capture()`)
 //!
+//! ## Imports
+//! - `import module` / `import module as alias`
+//! - `from module import name` / `from module import name as alias`
+//! - Built-in modules: `json` (loads/dumps), `math` (constants + functions), `typing`
+//! - Custom module registration via [`Sandbox::module`]
+//!
 //! # Not Supported
 //!
-//! - `import` statements
 //! - Class definitions
 //! - Async/await
 //! - `finally` blocks
 //! - File I/O
-//! - Any standard library
+//! - Relative imports
 
 mod builtins;
 mod bytecode;
@@ -85,6 +90,7 @@ mod compiler;
 mod diagnostic;
 mod error;
 mod methods;
+pub(crate) mod modules;
 mod operators;
 mod sandbox;
 mod slice;
@@ -99,7 +105,7 @@ mod wasm_sandbox;
 
 pub use diagnostic::{Diagnostic, FunctionCallDiagnostic, Label, Span};
 pub use error::{Error, Result};
-pub use sandbox::{Limits, Output, Sandbox};
+pub use sandbox::{Limits, ModuleBuilder, Output, Sandbox};
 pub use tool::{ArgInfo, Tool, ToolCallError, ToolInfo};
 pub use value::{FromPyValue, PyValue, TypeError};
 

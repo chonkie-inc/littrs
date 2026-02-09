@@ -290,6 +290,13 @@ pub enum Op {
     /// Emitted at the end of each `except` handler body.
     PopException,
 
+    // --- Imports ---
+    /// Push a module from the VM's module registry by `names[idx]`.
+    ImportModule(u32),
+
+    /// Pop TOS, look up `names[idx]` in its attributes, push result.
+    LoadAttr(u32),
+
     // --- Misc ---
     /// No operation. Used as a placeholder or for `pass` statements.
     Nop,

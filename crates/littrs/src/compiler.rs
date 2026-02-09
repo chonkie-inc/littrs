@@ -343,6 +343,72 @@ impl Compiler {
                 self.compile_raise(raise_stmt, span)?;
             }
 
+            Stmt::Import(import_stmt) => {
+                let span = self.stmt_span(stmt);
+                for alias in &import_stmt.names {
+                    let module_name = alias.name.as_str();
+                    let module_idx = self.add_name(module_name);
+                    self.emit(Op::ImportModule(module_idx), span);
+
+                    // `import json as j` → store as "j"; `import json` → store as "json"
+                    let store_name = alias
+                        .asname
+                        .as_ref()
+                        .map(|n| n.as_str())
+                        .unwrap_or(module_name);
+                    let store_idx = self.add_name(store_name);
+                    self.emit(Op::StoreName(store_idx), span);
+                }
+                if is_last {
+                    let none_idx = self.add_const(PyValue::None);
+                    self.emit(Op::LoadConst(none_idx), span);
+                }
+            }
+
+            Stmt::ImportFrom(import_from) => {
+                let span = self.stmt_span(stmt);
+
+                // Reject relative imports
+                if import_from.level > 0 {
+                    return Err(Error::Unsupported(
+                        "Relative imports are not supported".to_string(),
+                    ));
+                }
+
+                let module_name = import_from
+                    .module
+                    .as_ref()
+                    .map(|m| m.as_str())
+                    .ok_or_else(|| {
+                        Error::Unsupported("from-import without module name".to_string())
+                    })?;
+                let module_idx = self.add_name(module_name);
+                self.emit(Op::ImportModule(module_idx), span);
+
+                for alias in &import_from.names {
+                    let attr_name = alias.name.as_str();
+                    // Dup the module so we can load multiple attrs
+                    self.emit(Op::Dup, span);
+                    let attr_idx = self.add_name(attr_name);
+                    self.emit(Op::LoadAttr(attr_idx), span);
+
+                    let store_name = alias
+                        .asname
+                        .as_ref()
+                        .map(|n| n.as_str())
+                        .unwrap_or(attr_name);
+                    let store_idx = self.add_name(store_name);
+                    self.emit(Op::StoreName(store_idx), span);
+                }
+                // Pop the leftover module from the stack
+                self.emit(Op::Pop, span);
+
+                if is_last {
+                    let none_idx = self.add_const(PyValue::None);
+                    self.emit(Op::LoadConst(none_idx), span);
+                }
+            }
+
             _ => {
                 return Err(Error::Unsupported(format!(
                     "Statement type not supported: {:?}",
@@ -557,16 +623,10 @@ impl Compiler {
             }
 
             Expr::Attribute(attr) => {
-                // Attribute access is mostly unsupported (methods are handled in Call)
-                let value_type = if let Expr::Name(_) = attr.value.as_ref() {
-                    "value"
-                } else {
-                    "expression"
-                };
-                return Err(Error::Unsupported(format!(
-                    "Attribute access: {}.{} - use function call syntax for methods",
-                    value_type, attr.attr
-                )));
+                // Compile the value expression, then load the attribute
+                self.compile_expr(&attr.value)?;
+                let attr_idx = self.add_name(attr.attr.as_str());
+                self.emit(Op::LoadAttr(attr_idx), span);
             }
 
             Expr::ListComp(listcomp) => {

@@ -83,6 +83,8 @@ pub struct Vm {
     globals: HashMap<String, PyValue>,
     /// Host-registered tool functions.
     tools: HashMap<String, RegisteredTool>,
+    /// Registered modules available for `import`.
+    modules: HashMap<String, PyValue>,
     /// Captured output from `print()` calls.
     print_buffer: Vec<String>,
     /// Maximum number of bytecode instructions per `execute()` call.
@@ -106,6 +108,7 @@ impl Vm {
             stack: Vec::new(),
             globals: HashMap::new(),
             tools: HashMap::new(),
+            modules: HashMap::new(),
             print_buffer: Vec::new(),
             instruction_limit: None,
             recursion_limit: None,
@@ -142,6 +145,11 @@ impl Vm {
     /// Set a global variable visible to Python code.
     pub fn set_variable(&mut self, name: impl Into<String>, value: PyValue) {
         self.globals.insert(name.into(), value);
+    }
+
+    /// Register a module that can be imported from Python code.
+    pub fn register_module(&mut self, name: impl Into<String>, module: PyValue) {
+        self.modules.insert(name.into(), module);
     }
 
     /// Take and clear the print buffer, returning all captured output.
@@ -495,7 +503,7 @@ impl Vm {
             }
             Op::CallMethod(method_idx, n_args) => {
                 let method = frames.last().unwrap().code.names[method_idx as usize].clone();
-                self.call_method(&method, n_args as usize)?;
+                self.call_method(frames, &method, n_args as usize)?;
             }
             Op::CallMutMethod(var_idx, method_idx, n_args) => {
                 let var_name = frames.last().unwrap().code.names[var_idx as usize].clone();
@@ -544,6 +552,42 @@ impl Vm {
                     return Ok(());
                 }
                 self.stack.push(retval);
+            }
+
+            // --- Imports ---
+            Op::ImportModule(name_idx) => {
+                let name = frames.last().unwrap().code.names[name_idx as usize].clone();
+                if let Some(module) = self.modules.get(&name) {
+                    self.stack.push(module.clone());
+                } else {
+                    return Err(Error::Runtime(format!(
+                        "ModuleNotFoundError: No module named '{}'",
+                        name
+                    )));
+                }
+            }
+            Op::LoadAttr(attr_idx) => {
+                let attr_name = frames.last().unwrap().code.names[attr_idx as usize].clone();
+                let obj = self.stack.pop().unwrap_or(PyValue::None);
+                match &obj {
+                    PyValue::Module { name, attrs } => {
+                        if let Some((_, val)) = attrs.iter().find(|(k, _)| k == &attr_name) {
+                            self.stack.push(val.clone());
+                        } else {
+                            return Err(Error::Runtime(format!(
+                                "AttributeError: module '{}' has no attribute '{}'",
+                                name, attr_name
+                            )));
+                        }
+                    }
+                    _ => {
+                        return Err(Error::Runtime(format!(
+                            "AttributeError: '{}' object has no attribute '{}'",
+                            obj.type_name(),
+                            attr_name
+                        )));
+                    }
+                }
             }
 
             // --- Exception handling ---
@@ -942,7 +986,7 @@ impl Vm {
             return Ok(());
         }
 
-        // 3. Try user-defined functions (look up in locals then globals)
+        // 3. Try user-defined functions or native functions (look up in locals then globals)
         let func = frames
             .last()
             .and_then(|f| f.locals.get(name))
@@ -951,6 +995,14 @@ impl Vm {
 
         if let Some(PyValue::Function(func)) = func {
             return self.invoke_function_def(frames, &func, name, pos_args, kw_pairs);
+        }
+
+        if let Some(PyValue::NativeFunction(key)) = func {
+            if let Some(tool) = self.tools.get(&key).cloned() {
+                let result = (tool.func)(pos_args);
+                self.stack.push(result);
+                return Ok(());
+            }
         }
 
         // 4. Nothing matched
@@ -1102,6 +1154,18 @@ impl Vm {
             PyValue::Function(func) => {
                 let name = func.name.clone();
                 self.invoke_function_def(frames, &func, &name, pos_args, kw_pairs)
+            }
+            PyValue::NativeFunction(key) => {
+                if let Some(tool) = self.tools.get(&key).cloned() {
+                    let result = (tool.func)(pos_args);
+                    self.stack.push(result);
+                    Ok(())
+                } else {
+                    Err(Error::Runtime(format!(
+                        "TypeError: native function '{}' not found in tools",
+                        key
+                    )))
+                }
             }
             other => Err(Error::Runtime(format!(
                 "TypeError: '{}' object is not callable",
@@ -1385,13 +1449,64 @@ impl Vm {
     ///
     /// Stack layout: `[args..., object]`. Pops the object and args, calls
     /// the appropriate method handler, pushes the result.
-    fn call_method(&mut self, method: &str, n_args: usize) -> Result<()> {
+    fn call_method(
+        &mut self,
+        frames: &mut Vec<CallFrame>,
+        method: &str,
+        n_args: usize,
+    ) -> Result<()> {
         // The object is on the stack below the args
         // Stack: [... object, arg0, arg1, ...]
         // We need to pop args first, then the object
         let args_start = self.stack.len() - n_args;
         let args: Vec<PyValue> = self.stack.drain(args_start..).collect();
         let object = self.stack.pop().unwrap_or(PyValue::None);
+
+        match &object {
+            PyValue::Module { name, attrs } => {
+                // Look up method in module attrs
+                let attr_val = attrs
+                    .iter()
+                    .find(|(k, _)| k == method)
+                    .map(|(_, v)| v.clone());
+                match attr_val {
+                    Some(PyValue::NativeFunction(key)) => {
+                        if let Some(tool) = self.tools.get(&key).cloned() {
+                            let result = (tool.func)(args);
+                            self.stack.push(result);
+                            return Ok(());
+                        }
+                        return Err(Error::Runtime(format!(
+                            "AttributeError: module '{}' function '{}' not found in tools",
+                            name, method
+                        )));
+                    }
+                    Some(PyValue::Function(func)) => {
+                        let func_name = func.name.clone();
+                        return self.invoke_function_def(
+                            frames,
+                            &func,
+                            &func_name,
+                            args,
+                            Vec::new(),
+                        );
+                    }
+                    Some(_) => {
+                        return Err(Error::Runtime(format!(
+                            "TypeError: '{}' attribute '{}' is not callable",
+                            name, method
+                        )));
+                    }
+                    None => {
+                        return Err(Error::Runtime(format!(
+                            "AttributeError: module '{}' has no attribute '{}'",
+                            name, method
+                        )));
+                    }
+                }
+            }
+            _ => {}
+        }
 
         let result = match &object {
             PyValue::Str(s) => methods::call_str_method(s, method, args),
@@ -1576,6 +1691,10 @@ fn error_to_exception_type(err: &Error) -> &'static str {
                 "TypeError"
             } else if msg.starts_with("NameError") {
                 "NameError"
+            } else if msg.starts_with("ModuleNotFoundError") {
+                "ModuleNotFoundError"
+            } else if msg.starts_with("AttributeError") {
+                "AttributeError"
             } else if msg.contains("index out of range") {
                 "IndexError"
             } else if msg.contains("KeyError") {

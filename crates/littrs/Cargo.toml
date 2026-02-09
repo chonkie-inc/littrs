@@ -15,7 +15,7 @@ ruff_python_ast.workspace = true
 ruff_text_size.workspace = true
 thiserror.workspace = true
 serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
+serde_json.workspace = true
 wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
 littrs-macros = { workspace = true, optional = true }
@@ -28,4 +28,4 @@ littrs-macros.workspace = true
 default = []
 serde = ["dep:serde"]
 macros = ["dep:littrs-macros"]
-wasm = ["dep:wasmtime", "dep:wasmtime-wasi", "serde", "dep:serde_json"]
+wasm = ["dep:wasmtime", "dep:wasmtime-wasi", "serde"]

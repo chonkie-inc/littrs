@@ -6,6 +6,60 @@ use crate::tool::ToolInfo;
 use crate::value::PyValue;
 use crate::vm::{ToolFn, Vm};
 
+/// Builder for constructing modules that can be imported from Python code.
+///
+/// # Example
+///
+/// ```
+/// use littrs::{Sandbox, ModuleBuilder, PyValue};
+///
+/// let mut sandbox = Sandbox::new();
+///
+/// sandbox.module("mymod", |m| {
+///     m.constant("VERSION", PyValue::Str("1.0".to_string()));
+///     m.function("double", |args| {
+///         let x = args.get(0).and_then(|v| v.as_int()).unwrap_or(0);
+///         PyValue::Int(x * 2)
+///     });
+/// });
+///
+/// let result = sandbox.run("import mymod; mymod.double(21)").unwrap();
+/// assert_eq!(result, PyValue::Int(42));
+/// ```
+pub struct ModuleBuilder {
+    module_name: String,
+    attrs: Vec<(String, PyValue)>,
+    tools: Vec<(String, ToolFn)>,
+}
+
+impl ModuleBuilder {
+    fn new(module_name: &str) -> Self {
+        Self {
+            module_name: module_name.to_string(),
+            attrs: Vec::new(),
+            tools: Vec::new(),
+        }
+    }
+
+    /// Register a constant value as a module attribute.
+    pub fn constant(&mut self, name: &str, value: PyValue) {
+        self.attrs.push((name.to_string(), value));
+    }
+
+    /// Register a native function as a module attribute.
+    ///
+    /// The function will be callable as `module.function_name(args)`.
+    pub fn function<F>(&mut self, name: &str, f: F)
+    where
+        F: Fn(Vec<PyValue>) -> PyValue + Send + Sync + 'static,
+    {
+        let tool_key = format!("__mod_{}__{}", self.module_name, name);
+        self.attrs
+            .push((name.to_string(), PyValue::NativeFunction(tool_key.clone())));
+        self.tools.push((tool_key, Arc::new(f) as ToolFn));
+    }
+}
+
 /// A secure Python sandbox for executing untrusted code.
 ///
 /// The sandbox provides a minimal Python subset that can execute code
@@ -46,6 +100,65 @@ impl Sandbox {
             vm: Vm::new(),
             tool_infos: Vec::new(),
         }
+    }
+
+    /// Create a new sandbox with built-in modules (json, math, typing) pre-registered.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use littrs::{Sandbox, PyValue};
+    ///
+    /// let mut sandbox = Sandbox::with_builtins();
+    /// let result = sandbox.run("import math; math.sqrt(16.0)").unwrap();
+    /// assert_eq!(result, PyValue::Float(4.0));
+    /// ```
+    pub fn with_builtins() -> Self {
+        let mut sandbox = Self::new();
+        crate::modules::register_builtins(&mut sandbox);
+        sandbox
+    }
+
+    /// Register a module that can be imported from Python code.
+    ///
+    /// The builder closure receives a [`ModuleBuilder`] for adding constants
+    /// and functions to the module.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use littrs::{Sandbox, PyValue};
+    ///
+    /// let mut sandbox = Sandbox::new();
+    /// sandbox.module("utils", |m| {
+    ///     m.constant("PI", PyValue::Float(3.14));
+    ///     m.function("double", |args| {
+    ///         let x = args.get(0).and_then(|v| v.as_int()).unwrap_or(0);
+    ///         PyValue::Int(x * 2)
+    ///     });
+    /// });
+    ///
+    /// let result = sandbox.run("import utils; utils.double(5)").unwrap();
+    /// assert_eq!(result, PyValue::Int(10));
+    /// ```
+    pub fn module<F>(&mut self, name: &str, builder_fn: F)
+    where
+        F: FnOnce(&mut ModuleBuilder),
+    {
+        let mut builder = ModuleBuilder::new(name);
+        builder_fn(&mut builder);
+
+        // Register all native function tools in the VM
+        for (key, func) in builder.tools {
+            self.vm.register_tool(key, func);
+        }
+
+        // Build the module value and register it
+        let module = PyValue::Module {
+            name: name.to_string(),
+            attrs: builder.attrs,
+        };
+        self.vm.register_module(name, module);
     }
 
     /// Register a function that can be called from Python code.

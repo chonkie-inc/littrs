@@ -1,4 +1,5 @@
 use littrs::{Limits, PyValue, Sandbox};
+use std::f64::consts::PI;
 
 #[test]
 fn test_basic_arithmetic() {
@@ -2648,4 +2649,330 @@ fn test_callable_value_via_call_value_kw() {
     // Call a lambda stored in a variable with keyword args
     sandbox.run("f = lambda x, y=10: x + y").unwrap();
     assert_eq!(sandbox.run("f(5, y=20)").unwrap(), PyValue::Int(25));
+}
+
+// ============================================================================
+// Import system tests
+// ============================================================================
+
+#[test]
+fn test_import_math() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox.run("import math; math.sqrt(16.0)").unwrap(),
+        PyValue::Float(4.0)
+    );
+}
+
+#[test]
+fn test_import_math_pi() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox.run("import math; math.pi").unwrap(),
+        PyValue::Float(PI)
+    );
+}
+
+#[test]
+fn test_from_math_import() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox.run("from math import pi; pi").unwrap();
+    assert_eq!(result, PyValue::Float(PI));
+}
+
+#[test]
+fn test_from_math_import_multiple() {
+    let mut sandbox = Sandbox::with_builtins();
+    sandbox
+        .run("from math import pi, e, sqrt")
+        .unwrap();
+    assert_eq!(sandbox.run("pi").unwrap(), PyValue::Float(PI));
+    assert_eq!(
+        sandbox.run("e").unwrap(),
+        PyValue::Float(std::f64::consts::E)
+    );
+}
+
+#[test]
+fn test_import_as() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox.run("import math as m; m.sqrt(25.0)").unwrap(),
+        PyValue::Float(5.0)
+    );
+}
+
+#[test]
+fn test_from_import_as() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox
+            .run("from math import sqrt as square_root; square_root(9.0)")
+            .unwrap(),
+        PyValue::Float(3.0)
+    );
+}
+
+#[test]
+fn test_import_json_loads() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(r#"import json; json.loads('{"a": 1}')["a"]"#)
+        .unwrap();
+    assert_eq!(result, PyValue::Int(1));
+}
+
+#[test]
+fn test_import_json_dumps() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(r#"import json; json.dumps({"key": "value"})"#)
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::Str(r#"{"key":"value"}"#.to_string())
+    );
+}
+
+#[test]
+fn test_from_json_import() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(r#"from json import loads; loads('[1, 2, 3]')"#)
+        .unwrap();
+    assert_eq!(
+        result,
+        PyValue::List(vec![PyValue::Int(1), PyValue::Int(2), PyValue::Int(3)])
+    );
+}
+
+#[test]
+fn test_import_typing() {
+    let mut sandbox = Sandbox::with_builtins();
+    // Typing imports should succeed without error (all values are None)
+    sandbox
+        .run("from typing import List, Dict, Optional, Any")
+        .unwrap();
+}
+
+#[test]
+fn test_import_typing_no_error() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run("from typing import Union; Union")
+        .unwrap();
+    assert_eq!(result, PyValue::None);
+}
+
+#[test]
+fn test_import_nonexistent_module() {
+    let mut sandbox = Sandbox::with_builtins();
+    let err = sandbox.run("import os").unwrap_err();
+    assert!(
+        err.to_string().contains("ModuleNotFoundError"),
+        "Expected ModuleNotFoundError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_from_import_nonexistent_attr() {
+    let mut sandbox = Sandbox::with_builtins();
+    let err = sandbox
+        .run("from math import nonexistent")
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("AttributeError"),
+        "Expected AttributeError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_custom_module_registration() {
+    let mut sandbox = Sandbox::new();
+    sandbox.module("mymod", |m| {
+        m.constant("VERSION", PyValue::Str("1.0".to_string()));
+        m.function("double", |args| {
+            let x = args.first().and_then(|v| v.as_int()).unwrap_or(0);
+            PyValue::Int(x * 2)
+        });
+    });
+
+    assert_eq!(
+        sandbox.run("import mymod; mymod.VERSION").unwrap(),
+        PyValue::Str("1.0".to_string())
+    );
+    assert_eq!(
+        sandbox.run("mymod.double(21)").unwrap(),
+        PyValue::Int(42)
+    );
+}
+
+#[test]
+fn test_custom_module_from_import() {
+    let mut sandbox = Sandbox::new();
+    sandbox.module("tools", |m| {
+        m.constant("PI", PyValue::Float(3.14));
+        m.function("add", |args| {
+            let a = args.first().and_then(|v| v.as_int()).unwrap_or(0);
+            let b = args.get(1).and_then(|v| v.as_int()).unwrap_or(0);
+            PyValue::Int(a + b)
+        });
+    });
+
+    assert_eq!(
+        sandbox.run("from tools import PI; PI").unwrap(),
+        PyValue::Float(3.14)
+    );
+    assert_eq!(
+        sandbox.run("from tools import add; add(3, 4)").unwrap(),
+        PyValue::Int(7)
+    );
+}
+
+#[test]
+fn test_math_functions() {
+    let mut sandbox = Sandbox::with_builtins();
+
+    assert_eq!(
+        sandbox.run("import math; math.floor(3.7)").unwrap(),
+        PyValue::Int(3)
+    );
+    assert_eq!(
+        sandbox.run("math.ceil(3.2)").unwrap(),
+        PyValue::Int(4)
+    );
+    assert_eq!(
+        sandbox.run("math.fabs(-5.0)").unwrap(),
+        PyValue::Float(5.0)
+    );
+    assert_eq!(
+        sandbox.run("math.isnan(math.nan)").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.run("math.isinf(math.inf)").unwrap(),
+        PyValue::Bool(true)
+    );
+    assert_eq!(
+        sandbox.run("math.pow(2.0, 10.0)").unwrap(),
+        PyValue::Float(1024.0)
+    );
+}
+
+#[test]
+fn test_math_trig() {
+    let mut sandbox = Sandbox::with_builtins();
+    sandbox.run("import math").unwrap();
+
+    // sin(0) = 0
+    assert_eq!(
+        sandbox.run("math.sin(0.0)").unwrap(),
+        PyValue::Float(0.0)
+    );
+    // cos(0) = 1
+    assert_eq!(
+        sandbox.run("math.cos(0.0)").unwrap(),
+        PyValue::Float(1.0)
+    );
+}
+
+#[test]
+fn test_math_gcd() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox.run("import math; math.gcd(12, 8)").unwrap(),
+        PyValue::Int(4)
+    );
+}
+
+#[test]
+fn test_math_factorial() {
+    let mut sandbox = Sandbox::with_builtins();
+    assert_eq!(
+        sandbox.run("import math; math.factorial(5)").unwrap(),
+        PyValue::Int(120)
+    );
+}
+
+#[test]
+fn test_json_roundtrip() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(r#"
+import json
+data = {"name": "Alice", "age": 30, "scores": [90, 85, 92]}
+json.loads(json.dumps(data))
+"#)
+        .unwrap();
+    // Verify the roundtrip preserves structure
+    if let PyValue::Dict(pairs) = &result {
+        assert_eq!(pairs.len(), 3);
+    } else {
+        panic!("Expected dict, got {:?}", result);
+    }
+}
+
+#[test]
+fn test_import_in_function() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(
+            r#"
+def compute():
+    import math
+    return math.sqrt(144.0)
+compute()
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Float(12.0));
+}
+
+#[test]
+fn test_import_module_not_found_catchable() {
+    let mut sandbox = Sandbox::with_builtins();
+    let result = sandbox
+        .run(
+            r#"
+try:
+    import os
+except Exception as e:
+    result = "caught"
+result
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("caught".to_string()));
+}
+
+#[test]
+fn test_attribute_access_on_module() {
+    let mut sandbox = Sandbox::with_builtins();
+    // Test that bare attribute access (not method call) works
+    assert_eq!(
+        sandbox.run("import math; x = math.pi; x").unwrap(),
+        PyValue::Float(PI)
+    );
+}
+
+#[test]
+fn test_from_import_function_call_value() {
+    let mut sandbox = Sandbox::with_builtins();
+    // When we `from math import sqrt`, sqrt should be a NativeFunction
+    // that's callable via call_function's variable lookup
+    let result = sandbox
+        .run("from math import sqrt; sqrt(49.0)")
+        .unwrap();
+    assert_eq!(result, PyValue::Float(7.0));
+}
+
+#[test]
+fn test_with_builtins_has_all_modules() {
+    let mut sandbox = Sandbox::with_builtins();
+    // All three built-in modules should be importable
+    sandbox.run("import json").unwrap();
+    sandbox.run("import math").unwrap();
+    sandbox.run("import typing").unwrap();
 }

@@ -51,6 +51,12 @@ fn pyvalue_to_py(py: Python<'_>, value: &PyValue) -> PyObject {
                 format!("<function {}>", f.name).into_py_any(py).unwrap()
             }
         }
+        PyValue::Module { name, .. } => format!("<module '{}'>", name)
+            .into_py_any(py)
+            .unwrap(),
+        PyValue::NativeFunction(key) => format!("<built-in function {}>", key)
+            .into_py_any(py)
+            .unwrap(),
     }
 }
 
@@ -117,10 +123,24 @@ struct Sandbox {
 #[pymethods]
 impl Sandbox {
     /// Create a new sandbox instance.
+    ///
+    /// Args:
+    ///     builtins: If True, pre-register built-in modules (json, math, typing).
+    ///         Defaults to False.
+    ///
+    /// Example:
+    ///     >>> sandbox = Sandbox(builtins=True)
+    ///     >>> sandbox.run("import math; math.sqrt(16.0)")
+    ///     4.0
     #[new]
-    fn new() -> Self {
+    #[pyo3(signature = (builtins=false))]
+    fn new(builtins: bool) -> Self {
         Self {
-            inner: RustSandbox::new(),
+            inner: if builtins {
+                RustSandbox::with_builtins()
+            } else {
+                RustSandbox::new()
+            },
         }
     }
 
@@ -212,6 +232,64 @@ impl Sandbox {
                     }
                 }
             })
+        });
+
+        Ok(())
+    }
+
+    /// Register a module that can be imported from sandbox code.
+    ///
+    /// The module is defined by a dict mapping attribute names to values
+    /// or callables. Callables become module functions; other values become
+    /// constants.
+    ///
+    /// Args:
+    ///     name: The module name (used in `import name`).
+    ///     attrs: A dict of attribute names to values or callables.
+    ///
+    /// Example:
+    ///     >>> sandbox = Sandbox()
+    ///     >>> sandbox.module("mymod", {
+    ///     ...     "VERSION": "1.0",
+    ///     ...     "double": lambda args: args[0] * 2,
+    ///     ... })
+    ///     >>> sandbox.run("import mymod; mymod.double(21)")
+    ///     42
+    fn module(&mut self, _py: Python<'_>, name: &str, attrs: &Bound<'_, PyDict>) -> PyResult<()> {
+        // Separate callables (functions) from constants
+        let mut constants: Vec<(String, PyValue)> = Vec::new();
+        let mut functions: Vec<(String, PyObject)> = Vec::new();
+
+        for (k, v) in attrs.iter() {
+            let attr_name = k.extract::<String>()?;
+            if v.is_callable() {
+                functions.push((attr_name, v.unbind()));
+            } else {
+                constants.push((attr_name, py_to_pyvalue(&v)?));
+            }
+        }
+
+        self.inner.module(name, |m| {
+            for (attr_name, value) in constants {
+                m.constant(&attr_name, value);
+            }
+            for (attr_name, func) in functions {
+                m.function(&attr_name, move |args: Vec<PyValue>| {
+                    Python::with_gil(|py| {
+                        let py_args: Vec<PyObject> =
+                            args.iter().map(|v| pyvalue_to_py(py, v)).collect();
+                        match func.call1(py, (py_args,)) {
+                            Ok(result) => {
+                                py_to_pyvalue(result.bind(py)).unwrap_or(PyValue::None)
+                            }
+                            Err(e) => PyValue::Dict(vec![(
+                                PyValue::Str("error".to_string()),
+                                PyValue::Str(format!("{}", e)),
+                            )]),
+                        }
+                    })
+                });
+            }
         });
 
         Ok(())
