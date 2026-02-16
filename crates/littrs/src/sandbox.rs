@@ -420,11 +420,14 @@ impl Sandbox {
         self.vm.take_print_output()
     }
 
-    /// Mount a virtual file visible to sandbox code.
+    /// Mount a file or directory visible to sandbox code.
     ///
-    /// The file content is read from `host_path` at mount time. If `writable`
-    /// is true, sandbox code can open the file in write mode and writes will
-    /// be persisted back to `host_path`.
+    /// If `host_path` points to a directory, files within it are resolved
+    /// lazily when sandbox code calls `open()`. If it points to a file,
+    /// the content is read eagerly at mount time.
+    ///
+    /// If `writable` is true, sandbox code can open files in write mode
+    /// and writes will be persisted back to the host filesystem.
     ///
     /// # Example
     ///
@@ -433,7 +436,7 @@ impl Sandbox {
     ///
     /// let mut sandbox = Sandbox::new();
     /// sandbox.mount("data.json", "./data/input.json", false);
-    /// sandbox.mount("output.txt", "./output/result.txt", true);
+    /// sandbox.mount(".", "/home/user/project", true);
     /// ```
     pub fn mount(
         &mut self,
@@ -442,9 +445,12 @@ impl Sandbox {
         writable: bool,
     ) {
         let host = host_path.into();
-        let content = std::fs::read_to_string(&host).unwrap_or_default();
-        self.vm
-            .mount(virtual_path.into(), host, writable, content);
+        if std::path::Path::new(&host).is_dir() {
+            self.vm.mount_dir(virtual_path.into(), host, writable);
+        } else {
+            let content = std::fs::read_to_string(&host).unwrap_or_default();
+            self.vm.mount(virtual_path.into(), host, writable, content);
+        }
     }
 
     /// Get current contents of all writable mounted files.

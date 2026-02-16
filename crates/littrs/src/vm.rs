@@ -54,6 +54,17 @@ pub struct MountEntry {
     pub content: String,
 }
 
+/// A mounted directory — files within are resolved lazily on `open()`.
+#[derive(Clone, Debug)]
+pub struct DirMount {
+    /// Virtual path prefix (e.g. `"."` or `"workspace"`).
+    pub virtual_prefix: String,
+    /// Host filesystem directory path.
+    pub host_dir: String,
+    /// Whether files opened under this mount are writable.
+    pub writable: bool,
+}
+
 /// Runtime state of an open file handle.
 #[derive(Clone, Debug)]
 struct FileState {
@@ -123,6 +134,8 @@ pub struct Vm {
     exception_stack: Vec<ExceptionState>,
     /// Mounted virtual files (virtual path → mount entry).
     mounts: HashMap<String, MountEntry>,
+    /// Mounted directories — files resolved lazily on `open()`.
+    dir_mounts: Vec<DirMount>,
     /// Open file handles (handle id → file state).
     open_files: HashMap<u64, FileState>,
     /// Next file handle id to allocate.
@@ -147,6 +160,7 @@ impl Vm {
             instruction_count: 0,
             exception_stack: Vec::new(),
             mounts: HashMap::new(),
+            dir_mounts: Vec::new(),
             open_files: HashMap::new(),
             next_file_handle: 0,
         }
@@ -212,6 +226,15 @@ impl Vm {
             host_path,
             writable,
             content,
+        });
+    }
+
+    /// Mount a host directory. Files within are resolved lazily on `open()`.
+    pub fn mount_dir(&mut self, virtual_prefix: String, host_dir: String, writable: bool) {
+        self.dir_mounts.push(DirMount {
+            virtual_prefix,
+            host_dir,
+            writable,
         });
     }
 
@@ -1476,10 +1499,31 @@ impl Vm {
         let entry = match self.mounts.get(&path) {
             Some(e) => e.clone(),
             None => {
-                return Err(Error::Runtime(format!(
-                    "FileNotFoundError: [Errno 2] No such file or directory: '{}'",
-                    path
-                )));
+                // Resolve through directory mounts.
+                let resolved = self.dir_mounts.iter().find_map(|dm| {
+                    let relative = if dm.virtual_prefix == "." {
+                        path.clone()
+                    } else {
+                        path.strip_prefix(&format!("{}/", dm.virtual_prefix))?.to_string()
+                    };
+                    let host_path = format!("{}/{}", dm.host_dir, relative);
+                    let content = std::fs::read_to_string(&host_path).ok()?;
+                    Some(MountEntry { host_path, writable: dm.writable, content })
+                });
+
+                match resolved {
+                    Some(entry) => {
+                        // Cache so close() write-through works unchanged.
+                        self.mounts.insert(path.clone(), entry.clone());
+                        entry
+                    }
+                    None => {
+                        return Err(Error::Runtime(format!(
+                            "FileNotFoundError: [Errno 2] No such file or directory: '{}'",
+                            path
+                        )));
+                    }
+                }
             }
         };
 

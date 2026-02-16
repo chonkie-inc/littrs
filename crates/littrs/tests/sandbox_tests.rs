@@ -3890,3 +3890,99 @@ words
         ])
     );
 }
+
+#[test]
+fn test_mount_dir_read_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("src");
+    std::fs::create_dir_all(&sub).unwrap();
+    std::fs::write(sub.join("main.rs"), "fn main() {}").unwrap();
+    std::fs::write(dir.path().join("README.md"), "# Hello").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), false);
+
+    // Read a file at the root of the mounted directory.
+    let result = sandbox
+        .run(
+            r#"
+f = open("README.md")
+content = f.read()
+f.close()
+content
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("# Hello".to_string()));
+
+    // Read a file in a subdirectory.
+    let result = sandbox
+        .run(
+            r#"
+f = open("src/main.rs")
+content = f.read()
+f.close()
+content
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("fn main() {}".to_string()));
+}
+
+#[test]
+fn test_mount_dir_write_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("output.txt"), "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+f = open("output.txt", "w")
+f.write("written via dir mount")
+f.close()
+"#,
+        )
+        .unwrap();
+
+    let host_content = std::fs::read_to_string(dir.path().join("output.txt")).unwrap();
+    assert_eq!(host_content, "written via dir mount");
+}
+
+#[test]
+fn test_mount_dir_nonexistent_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), false);
+
+    let err = sandbox.run(r#"open("does_not_exist.txt")"#).unwrap_err();
+    assert!(
+        err.to_string().contains("FileNotFoundError"),
+        "Expected FileNotFoundError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_mount_dir_with_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("data.csv"), "a,b,c").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount("workspace", dir.path().to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+f = open("workspace/data.csv")
+content = f.read()
+f.close()
+content
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("a,b,c".to_string()));
+}
