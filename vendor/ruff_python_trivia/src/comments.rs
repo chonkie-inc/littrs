@@ -41,10 +41,10 @@ impl SuppressionKind {
         // `# fmt: skip # noqa: E501`).
         for segment in comment.split('#') {
             let trimmed = segment.trim_whitespace();
-            if let Some(command) = trimmed.strip_prefix("fmt:") {
-                if command.trim_whitespace_start() == "skip" {
-                    return Some(SuppressionKind::Skip);
-                }
+            if let Some(command) = trimmed.strip_prefix("fmt:")
+                && command.trim_whitespace_start() == "skip"
+            {
+                return Some(SuppressionKind::Skip);
             }
         }
 

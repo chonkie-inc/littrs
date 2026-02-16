@@ -167,14 +167,14 @@ impl<'src> Lexer<'src> {
     }
 
     fn lex_token(&mut self) -> TokenKind {
-        if let Some(interpolated_string) = self.interpolated_strings.current() {
-            if !interpolated_string.is_in_interpolation(self.nesting) {
-                if let Some(token) = self.lex_interpolated_string_middle_or_end() {
-                    if token.is_interpolated_string_end() {
-                        self.interpolated_strings.pop();
-                    }
-                    return token;
+        if let Some(interpolated_string) = self.interpolated_strings.current()
+            && !interpolated_string.is_in_interpolation(self.nesting)
+        {
+            if let Some(token) = self.lex_interpolated_string_middle_or_end() {
+                if token.is_interpolated_string_end() {
+                    self.interpolated_strings.pop();
                 }
+                return token;
             }
         }
         // Return dedent tokens until the current indentation level matches the indentation of the next token.
@@ -204,10 +204,8 @@ impl<'src> Lexer<'src> {
             if let Some(indentation) = self.eat_indentation() {
                 return indentation;
             }
-        } else {
-            if let Err(error) = self.skip_whitespace() {
-                return self.push_error(error);
-            }
+        } else if let Err(error) = self.skip_whitespace() {
+            return self.push_error(error);
         }
 
         // The lexer might've skipped whitespaces, so update the start offset
@@ -635,10 +633,10 @@ impl<'src> Lexer<'src> {
         };
 
         if let Some(quote) = quote {
-            if self.current_flags.is_interpolated_string() {
-                if let Some(kind) = self.lex_interpolated_string_start(quote) {
-                    return kind;
-                }
+            if self.current_flags.is_interpolated_string()
+                && let Some(kind) = self.lex_interpolated_string_start(quote)
+            {
+                return kind;
             }
 
             return self.lex_string(quote);
@@ -860,11 +858,11 @@ impl<'src> Lexer<'src> {
                         // Don't consume `{` or `}` as we want them to be emitted as tokens.
                         // They will be handled in the next iteration.
                         continue;
-                    } else if !interpolated_string.is_raw_string() {
-                        if self.cursor.eat_char2('N', '{') {
-                            in_named_unicode = true;
-                            continue;
-                        }
+                    } else if !interpolated_string.is_raw_string()
+                        && self.cursor.eat_char2('N', '{')
+                    {
+                        in_named_unicode = true;
+                        continue;
                     }
                     // Consume the escaped character.
                     if self.cursor.eat_char('\r') {
@@ -1825,4 +1823,3 @@ impl<'a> LexedText<'a> {
 pub fn lex(source: &str, mode: Mode) -> Lexer<'_> {
     Lexer::new(source, mode, TextSize::default())
 }
-

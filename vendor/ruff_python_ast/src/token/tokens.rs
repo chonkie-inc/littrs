@@ -99,10 +99,10 @@ impl Tokens {
                 let token = self[index];
                 // `token` starts exactly at `offset`. Test if the offset is right between
                 // `token` and the previous token (if there's any)
-                if let Some(previous) = index.checked_sub(1).map(|idx| self[idx]) {
-                    if previous.end() == offset {
-                        return TokenAt::Between(previous, token);
-                    }
+                if let Some(previous) = index.checked_sub(1).map(|idx| self[idx])
+                    && previous.end() == offset
+                {
+                    return TokenAt::Between(previous, token);
                 }
 
                 TokenAt::Single(token)
@@ -119,10 +119,10 @@ impl Tokens {
             //  ^ OFFSET
             // ```
             Err(index) => {
-                if let Some(previous) = index.checked_sub(1).map(|idx| self[idx]) {
-                    if previous.range().contains_inclusive(offset) {
-                        return TokenAt::Single(previous);
-                    }
+                if let Some(previous) = index.checked_sub(1).map(|idx| self[idx])
+                    && previous.range().contains_inclusive(offset)
+                {
+                    return TokenAt::Single(previous);
                 }
 
                 TokenAt::None

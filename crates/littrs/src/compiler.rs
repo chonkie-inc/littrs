@@ -375,13 +375,14 @@ impl Compiler {
                     ));
                 }
 
-                let module_name = import_from
-                    .module
-                    .as_ref()
-                    .map(|m| m.as_str())
-                    .ok_or_else(|| {
-                        Error::Unsupported("from-import without module name".to_string())
-                    })?;
+                let module_name =
+                    import_from
+                        .module
+                        .as_ref()
+                        .map(|m| m.as_str())
+                        .ok_or_else(|| {
+                            Error::Unsupported("from-import without module name".to_string())
+                        })?;
                 let module_idx = self.add_name(module_name);
                 self.emit(Op::ImportModule(module_idx), span);
 
@@ -1145,9 +1146,7 @@ impl Compiler {
         self.emit(Op::StoreName(comp_var_idx), span);
 
         // Compile the generators recursively
-        self.compile_dict_comprehension_generators(
-            key, value, generators, 0, comp_var_idx, span,
-        )?;
+        self.compile_dict_comprehension_generators(key, value, generators, 0, comp_var_idx, span)?;
 
         // Load the result
         self.emit(Op::LoadName(comp_var_idx), span);
@@ -1188,7 +1187,12 @@ impl Compiler {
 
         if gen_index + 1 < generators.len() {
             self.compile_dict_comprehension_generators(
-                key, value, generators, gen_index + 1, comp_var_idx, span,
+                key,
+                value,
+                generators,
+                gen_index + 1,
+                comp_var_idx,
+                span,
             )?;
         } else {
             // Innermost: StoreSubscript pops index (key) then value from stack

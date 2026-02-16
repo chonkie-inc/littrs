@@ -653,13 +653,13 @@ impl<'src> Parser<'src> {
             self.bump_any();
         }
 
-        if let Some(trailing_comma_range) = trailing_comma_range {
-            if !recovery_context_kind.allow_trailing_comma() {
-                self.add_error(
-                    ParseErrorType::OtherError("Trailing comma not allowed".to_string()),
-                    trailing_comma_range,
-                );
-            }
+        if let Some(trailing_comma_range) = trailing_comma_range
+            && !recovery_context_kind.allow_trailing_comma()
+        {
+            self.add_error(
+                ParseErrorType::OtherError("Trailing comma not allowed".to_string()),
+                trailing_comma_range,
+            );
         }
 
         self.recovery_context = saved_context;

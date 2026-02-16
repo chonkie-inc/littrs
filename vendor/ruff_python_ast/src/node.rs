@@ -251,11 +251,11 @@ impl ast::PatternMatchMapping {
         let mut rest = rest.as_ref();
 
         for (key, pattern) in keys.iter().zip(patterns) {
-            if let Some(rest_identifier) = rest {
-                if rest_identifier.start() < key.start() {
-                    visitor.visit_identifier(rest_identifier);
-                    rest = None;
-                }
+            if let Some(rest_identifier) = rest
+                && rest_identifier.start() < key.start()
+            {
+                visitor.visit_identifier(rest_identifier);
+                rest = None;
             }
             visitor.visit_expr(key);
             visitor.visit_pattern(pattern);

@@ -139,7 +139,9 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
         }
         "find" => {
             check_args("find", &args, 1)?;
-            Ok(PyValue::Int(s.find(arg_str(&args[0])?).map(|i| i as i64).unwrap_or(-1)))
+            Ok(PyValue::Int(
+                s.find(arg_str(&args[0])?).map(|i| i as i64).unwrap_or(-1),
+            ))
         }
         "count" => {
             check_args("count", &args, 1)?;
@@ -242,10 +244,7 @@ pub fn call_str_method(s: &str, method: &str, args: Vec<PyValue>) -> Result<PyVa
             }
         }
         "splitlines" => {
-            let keepends = args
-                .first()
-                .map(|v| v.is_truthy())
-                .unwrap_or(false);
+            let keepends = args.first().map(|v| v.is_truthy()).unwrap_or(false);
             let mut lines = Vec::new();
             let mut start = 0;
             let bytes = s.as_bytes();
@@ -604,11 +603,7 @@ pub fn call_set_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> R
             }
             let other = to_set_items(&args[0])?;
             let idx = SetIndex::new(&other);
-            let result: Vec<PyValue> = items
-                .iter()
-                .filter(|v| idx.contains(v))
-                .cloned()
-                .collect();
+            let result: Vec<PyValue> = items.iter().filter(|v| idx.contains(v)).cloned().collect();
             Ok(PyValue::Set(result))
         }
         "difference" => {
@@ -619,11 +614,7 @@ pub fn call_set_method(items: &[PyValue], method: &str, args: Vec<PyValue>) -> R
             }
             let other = to_set_items(&args[0])?;
             let idx = SetIndex::new(&other);
-            let result: Vec<PyValue> = items
-                .iter()
-                .filter(|v| !idx.contains(v))
-                .cloned()
-                .collect();
+            let result: Vec<PyValue> = items.iter().filter(|v| !idx.contains(v)).cloned().collect();
             Ok(PyValue::Set(result))
         }
         "symmetric_difference" => {
@@ -727,10 +718,7 @@ fn str_format(s: &str, args: Vec<PyValue>) -> Result<PyValue> {
                 })?
             } else {
                 // Named field — not supported without kwargs
-                return Err(Error::Runtime(format!(
-                    "KeyError: '{}'",
-                    field
-                )));
+                return Err(Error::Runtime(format!("KeyError: '{}'", field)));
             };
             result.push_str(&val.to_print_string());
             i = end + 1;
@@ -818,10 +806,7 @@ pub fn mutate_set(items: &mut Vec<PyValue>, method: &str, args: Vec<PyValue>) ->
             }
             // Collect new items, then extend
             let idx = SetIndex::new(items);
-            let new_items: Vec<PyValue> = other
-                .into_iter()
-                .filter(|v| !idx.contains(v))
-                .collect();
+            let new_items: Vec<PyValue> = other.into_iter().filter(|v| !idx.contains(v)).collect();
             items.extend(new_items);
             Ok(PyValue::None)
         }

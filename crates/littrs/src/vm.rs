@@ -221,12 +221,21 @@ impl Vm {
     ///
     /// `content` is the initial file content (read from host at mount time).
     /// If `writable` is true, sandbox code can open the file in write mode.
-    pub fn mount(&mut self, virtual_path: String, host_path: String, writable: bool, content: String) {
-        self.mounts.insert(virtual_path, MountEntry {
-            host_path,
-            writable,
-            content,
-        });
+    pub fn mount(
+        &mut self,
+        virtual_path: String,
+        host_path: String,
+        writable: bool,
+        content: String,
+    ) {
+        self.mounts.insert(
+            virtual_path,
+            MountEntry {
+                host_path,
+                writable,
+                content,
+            },
+        );
     }
 
     /// Mount a host directory. Files within are resolved lazily on `open()`.
@@ -592,13 +601,7 @@ impl Vm {
             Op::CallMutMethodKw(var_idx, method_idx, n_pos, n_kw) => {
                 let var_name = frames.last().unwrap().code.names[var_idx as usize].clone();
                 let method = frames.last().unwrap().code.names[method_idx as usize].clone();
-                self.call_mut_method_kw(
-                    frames,
-                    &var_name,
-                    &method,
-                    n_pos as usize,
-                    n_kw as usize,
-                )?;
+                self.call_mut_method_kw(frames, &var_name, &method, n_pos as usize, n_kw as usize)?;
             }
             Op::CallValue(n_args) => {
                 self.call_value(frames, n_args as usize, 0)?;
@@ -1092,12 +1095,12 @@ impl Vm {
             return self.invoke_function_def(frames, &func, name, pos_args, kw_pairs);
         }
 
-        if let Some(PyValue::NativeFunction(key)) = func {
-            if let Some(tool) = self.tools.get(&key).cloned() {
-                let result = (tool.func)(pos_args);
-                self.stack.push(result);
-                return Ok(());
-            }
+        if let Some(PyValue::NativeFunction(key)) = func
+            && let Some(tool) = self.tools.get(&key).cloned()
+        {
+            let result = (tool.func)(pos_args);
+            self.stack.push(result);
+            return Ok(());
         }
 
         // 4. Nothing matched
@@ -1504,11 +1507,16 @@ impl Vm {
                     let relative = if dm.virtual_prefix == "." {
                         path.clone()
                     } else {
-                        path.strip_prefix(&format!("{}/", dm.virtual_prefix))?.to_string()
+                        path.strip_prefix(&format!("{}/", dm.virtual_prefix))?
+                            .to_string()
                     };
                     let host_path = format!("{}/{}", dm.host_dir, relative);
                     let content = std::fs::read_to_string(&host_path).ok()?;
-                    Some(MountEntry { host_path, writable: dm.writable, content })
+                    Some(MountEntry {
+                        host_path,
+                        writable: dm.writable,
+                        content,
+                    })
                 });
 
                 match resolved {
@@ -1776,50 +1784,41 @@ impl Vm {
             return Ok(());
         }
 
-        match &object {
-            PyValue::Module { name, attrs } => {
-                // Look up method in module attrs
-                let attr_val = attrs
-                    .iter()
-                    .find(|(k, _)| k == method)
-                    .map(|(_, v)| v.clone());
-                match attr_val {
-                    Some(PyValue::NativeFunction(key)) => {
-                        if let Some(tool) = self.tools.get(&key).cloned() {
-                            let result = (tool.func)(args);
-                            self.stack.push(result);
-                            return Ok(());
-                        }
-                        return Err(Error::Runtime(format!(
-                            "AttributeError: module '{}' function '{}' not found in tools",
-                            name, method
-                        )));
+        if let PyValue::Module { name, attrs } = &object {
+            // Look up method in module attrs
+            let attr_val = attrs
+                .iter()
+                .find(|(k, _)| k == method)
+                .map(|(_, v)| v.clone());
+            match attr_val {
+                Some(PyValue::NativeFunction(key)) => {
+                    if let Some(tool) = self.tools.get(&key).cloned() {
+                        let result = (tool.func)(args);
+                        self.stack.push(result);
+                        return Ok(());
                     }
-                    Some(PyValue::Function(func)) => {
-                        let func_name = func.name.clone();
-                        return self.invoke_function_def(
-                            frames,
-                            &func,
-                            &func_name,
-                            args,
-                            Vec::new(),
-                        );
-                    }
-                    Some(_) => {
-                        return Err(Error::Runtime(format!(
-                            "TypeError: '{}' attribute '{}' is not callable",
-                            name, method
-                        )));
-                    }
-                    None => {
-                        return Err(Error::Runtime(format!(
-                            "AttributeError: module '{}' has no attribute '{}'",
-                            name, method
-                        )));
-                    }
+                    return Err(Error::Runtime(format!(
+                        "AttributeError: module '{}' function '{}' not found in tools",
+                        name, method
+                    )));
+                }
+                Some(PyValue::Function(func)) => {
+                    let func_name = func.name.clone();
+                    return self.invoke_function_def(frames, &func, &func_name, args, Vec::new());
+                }
+                Some(_) => {
+                    return Err(Error::Runtime(format!(
+                        "TypeError: '{}' attribute '{}' is not callable",
+                        name, method
+                    )));
+                }
+                None => {
+                    return Err(Error::Runtime(format!(
+                        "AttributeError: module '{}' has no attribute '{}'",
+                        name, method
+                    )));
                 }
             }
-            _ => {}
         }
 
         let result = match &object {

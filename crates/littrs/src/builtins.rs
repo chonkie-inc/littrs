@@ -558,9 +558,7 @@ fn builtin_pow(args: Vec<PyValue>) -> Result<PyValue> {
             }
             Ok(PyValue::Int(((result % modulus) + modulus) % modulus))
         }
-        _ => Err(Error::Runtime(
-            "pow() takes 2 or 3 arguments".to_string(),
-        )),
+        _ => Err(Error::Runtime("pow() takes 2 or 3 arguments".to_string())),
     }
 }
 

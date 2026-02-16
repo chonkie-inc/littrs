@@ -51,15 +51,11 @@ fn pyvalue_to_py(py: Python<'_>, value: &PyValue) -> PyObject {
                 format!("<function {}>", f.name).into_py_any(py).unwrap()
             }
         }
-        PyValue::Module { name, .. } => format!("<module '{}'>", name)
-            .into_py_any(py)
-            .unwrap(),
+        PyValue::Module { name, .. } => format!("<module '{}'>", name).into_py_any(py).unwrap(),
         PyValue::NativeFunction(key) => format!("<built-in function {}>", key)
             .into_py_any(py)
             .unwrap(),
-        PyValue::File(handle) => format!("<file handle={}>", handle)
-            .into_py_any(py)
-            .unwrap(),
+        PyValue::File(handle) => format!("<file handle={}>", handle).into_py_any(py).unwrap(),
     }
 }
 
@@ -282,9 +278,7 @@ impl Sandbox {
                         let py_args: Vec<PyObject> =
                             args.iter().map(|v| pyvalue_to_py(py, v)).collect();
                         match func.call1(py, (py_args,)) {
-                            Ok(result) => {
-                                py_to_pyvalue(result.bind(py)).unwrap_or(PyValue::None)
-                            }
+                            Ok(result) => py_to_pyvalue(result.bind(py)).unwrap_or(PyValue::None),
                             Err(e) => PyValue::Dict(vec![(
                                 PyValue::Str("error".to_string()),
                                 PyValue::Str(format!("{}", e)),

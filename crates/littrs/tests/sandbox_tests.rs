@@ -2683,9 +2683,7 @@ fn test_from_math_import() {
 #[test]
 fn test_from_math_import_multiple() {
     let mut sandbox = Sandbox::with_builtins();
-    sandbox
-        .run("from math import pi, e, sqrt")
-        .unwrap();
+    sandbox.run("from math import pi, e, sqrt").unwrap();
     assert_eq!(sandbox.run("pi").unwrap(), PyValue::Float(PI));
     assert_eq!(
         sandbox.run("e").unwrap(),
@@ -2728,10 +2726,7 @@ fn test_import_json_dumps() {
     let result = sandbox
         .run(r#"import json; json.dumps({"key": "value"})"#)
         .unwrap();
-    assert_eq!(
-        result,
-        PyValue::Str(r#"{"key":"value"}"#.to_string())
-    );
+    assert_eq!(result, PyValue::Str(r#"{"key":"value"}"#.to_string()));
 }
 
 #[test]
@@ -2758,9 +2753,7 @@ fn test_import_typing() {
 #[test]
 fn test_import_typing_no_error() {
     let mut sandbox = Sandbox::with_builtins();
-    let result = sandbox
-        .run("from typing import Union; Union")
-        .unwrap();
+    let result = sandbox.run("from typing import Union; Union").unwrap();
     assert_eq!(result, PyValue::None);
 }
 
@@ -2778,9 +2771,7 @@ fn test_import_nonexistent_module() {
 #[test]
 fn test_from_import_nonexistent_attr() {
     let mut sandbox = Sandbox::with_builtins();
-    let err = sandbox
-        .run("from math import nonexistent")
-        .unwrap_err();
+    let err = sandbox.run("from math import nonexistent").unwrap_err();
     assert!(
         err.to_string().contains("AttributeError"),
         "Expected AttributeError, got: {}",
@@ -2803,10 +2794,7 @@ fn test_custom_module_registration() {
         sandbox.run("import mymod; mymod.VERSION").unwrap(),
         PyValue::Str("1.0".to_string())
     );
-    assert_eq!(
-        sandbox.run("mymod.double(21)").unwrap(),
-        PyValue::Int(42)
-    );
+    assert_eq!(sandbox.run("mymod.double(21)").unwrap(), PyValue::Int(42));
 }
 
 #[test]
@@ -2839,14 +2827,8 @@ fn test_math_functions() {
         sandbox.run("import math; math.floor(3.7)").unwrap(),
         PyValue::Int(3)
     );
-    assert_eq!(
-        sandbox.run("math.ceil(3.2)").unwrap(),
-        PyValue::Int(4)
-    );
-    assert_eq!(
-        sandbox.run("math.fabs(-5.0)").unwrap(),
-        PyValue::Float(5.0)
-    );
+    assert_eq!(sandbox.run("math.ceil(3.2)").unwrap(), PyValue::Int(4));
+    assert_eq!(sandbox.run("math.fabs(-5.0)").unwrap(), PyValue::Float(5.0));
     assert_eq!(
         sandbox.run("math.isnan(math.nan)").unwrap(),
         PyValue::Bool(true)
@@ -2867,15 +2849,9 @@ fn test_math_trig() {
     sandbox.run("import math").unwrap();
 
     // sin(0) = 0
-    assert_eq!(
-        sandbox.run("math.sin(0.0)").unwrap(),
-        PyValue::Float(0.0)
-    );
+    assert_eq!(sandbox.run("math.sin(0.0)").unwrap(), PyValue::Float(0.0));
     // cos(0) = 1
-    assert_eq!(
-        sandbox.run("math.cos(0.0)").unwrap(),
-        PyValue::Float(1.0)
-    );
+    assert_eq!(sandbox.run("math.cos(0.0)").unwrap(), PyValue::Float(1.0));
 }
 
 #[test]
@@ -2900,11 +2876,13 @@ fn test_math_factorial() {
 fn test_json_roundtrip() {
     let mut sandbox = Sandbox::with_builtins();
     let result = sandbox
-        .run(r#"
+        .run(
+            r#"
 import json
 data = {"name": "Alice", "age": 30, "scores": [90, 85, 92]}
 json.loads(json.dumps(data))
-"#)
+"#,
+        )
         .unwrap();
     // Verify the roundtrip preserves structure
     if let PyValue::Dict(pairs) = &result {
@@ -2962,9 +2940,7 @@ fn test_from_import_function_call_value() {
     let mut sandbox = Sandbox::with_builtins();
     // When we `from math import sqrt`, sqrt should be a NativeFunction
     // that's callable via call_function's variable lookup
-    let result = sandbox
-        .run("from math import sqrt; sqrt(49.0)")
-        .unwrap();
+    let result = sandbox.run("from math import sqrt; sqrt(49.0)").unwrap();
     assert_eq!(result, PyValue::Float(7.0));
 }
 
@@ -3052,9 +3028,7 @@ fn test_open_readonly_file_write_permission_error() {
     let mut sandbox = Sandbox::new();
     sandbox.mount("readonly.txt", path.to_str().unwrap(), false);
 
-    let err = sandbox
-        .run(r#"open("readonly.txt", "w")"#)
-        .unwrap_err();
+    let err = sandbox.run(r#"open("readonly.txt", "w")"#).unwrap_err();
     assert!(
         err.to_string().contains("PermissionError"),
         "Expected PermissionError, got: {}",
@@ -3309,9 +3283,7 @@ f.close()
 #[test]
 fn test_dict_comprehension_basic() {
     let mut sandbox = Sandbox::new();
-    let result = sandbox
-        .run("{k: v for k, v in [(1, 2), (3, 4)]}")
-        .unwrap();
+    let result = sandbox.run("{k: v for k, v in [(1, 2), (3, 4)]}").unwrap();
     assert_eq!(
         result,
         PyValue::Dict(vec![

@@ -299,16 +299,16 @@ impl SemanticSyntaxChecker {
                     };
                     visitor.visit_expr(annotation);
                 }
-                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref() {
-                    if let Some(global_stmt) = ctx.global(id.as_str()) {
-                        let global_start = global_stmt.start();
-                        if !ctx.in_module_scope() || target.start() < global_start {
-                            Self::add_error(
-                                ctx,
-                                SemanticSyntaxErrorKind::AnnotatedGlobal(id.to_string()),
-                                target.range(),
-                            );
-                        }
+                if let Expr::Name(ast::ExprName { id, .. }) = target.as_ref()
+                    && let Some(global_stmt) = ctx.global(id.as_str())
+                {
+                    let global_start = global_stmt.start();
+                    if !ctx.in_module_scope() || target.start() < global_start {
+                        Self::add_error(
+                            ctx,
+                            SemanticSyntaxErrorKind::AnnotatedGlobal(id.to_string()),
+                            target.range(),
+                        );
                     }
                 }
             }
@@ -759,14 +759,14 @@ impl SemanticSyntaxChecker {
                     let mut visitor = ReturnVisitor::default();
                     visitor.visit_body(body);
 
-                    if visitor.has_yield {
-                        if let Some(return_range) = visitor.return_range {
-                            Self::add_error(
-                                ctx,
-                                SemanticSyntaxErrorKind::ReturnInGenerator,
-                                return_range,
-                            );
-                        }
+                    if visitor.has_yield
+                        && let Some(return_range) = visitor.return_range
+                    {
+                        Self::add_error(
+                            ctx,
+                            SemanticSyntaxErrorKind::ReturnInGenerator,
+                            return_range,
+                        );
                     }
                 }
                 self.seen_futures_boundary = true;
@@ -1755,16 +1755,15 @@ struct ReboundComprehensionVisitor<'a> {
 
 impl Visitor<'_> for ReboundComprehensionVisitor<'_> {
     fn visit_expr(&mut self, expr: &Expr) {
-        if let Expr::Named(ast::ExprNamed { target, .. }) = expr {
-            if let Expr::Name(ast::ExprName { id, range, .. }) = &**target {
-                if self.comprehensions.iter().any(|comp| {
-                    comp.target
-                        .as_name_expr()
-                        .is_some_and(|name| name.id == *id)
-                }) {
-                    self.rebound_variables.push(*range);
-                }
-            }
+        if let Expr::Named(ast::ExprNamed { target, .. }) = expr
+            && let Expr::Name(ast::ExprName { id, range, .. }) = &**target
+            && self.comprehensions.iter().any(|comp| {
+                comp.target
+                    .as_name_expr()
+                    .is_some_and(|name| name.id == *id)
+            })
+        {
+            self.rebound_variables.push(*range);
         }
         walk_expr(self, expr);
     }

@@ -58,13 +58,13 @@ where
         }) = expr
         {
             // Ex) `list()`
-            if arguments.is_empty() {
-                if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
-                    if !is_iterable_initializer(id.as_str(), |id| is_builtin(id)) {
-                        return true;
-                    }
-                    return false;
+            if arguments.is_empty()
+                && let Expr::Name(ast::ExprName { id, .. }) = func.as_ref()
+            {
+                if !is_iterable_initializer(id.as_str(), |id| is_builtin(id)) {
+                    return true;
                 }
+                return false;
             }
         }
 
@@ -766,14 +766,12 @@ where
     F: Fn(&str) -> bool,
 {
     any_over_body(body, &|expr| {
-        if let Expr::Call(ast::ExprCall { func, .. }) = expr {
-            if let Expr::Name(ast::ExprName { id, .. }) = func.as_ref() {
-                if matches!(id.as_str(), "locals" | "globals" | "vars" | "exec" | "eval") {
-                    if is_builtin(id.as_str()) {
-                        return true;
-                    }
-                }
-            }
+        if let Expr::Call(ast::ExprCall { func, .. }) = expr
+            && let Expr::Name(ast::ExprName { id, .. }) = func.as_ref()
+            && matches!(id.as_str(), "locals" | "globals" | "vars" | "exec" | "eval")
+            && is_builtin(id.as_str())
+        {
+            return true;
         }
         false
     })
@@ -976,10 +974,10 @@ pub struct StoredNameFinder<'a> {
 
 impl<'a> Visitor<'a> for StoredNameFinder<'a> {
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if let Expr::Name(name) = expr {
-            if name.ctx.is_store() {
-                self.names.insert(&name.id, name);
-            }
+        if let Expr::Name(name) = expr
+            && name.ctx.is_store()
+        {
+            self.names.insert(&name.id, name);
         }
         crate::visitor::walk_expr(self, expr);
     }
@@ -1118,10 +1116,9 @@ pub fn on_conditional_branch<'a>(parents: &mut impl Iterator<Item = &'a Stmt>) -
             range: _,
             node_index: _,
         }) = parent
+            && value.is_if_expr()
         {
-            if value.is_if_expr() {
-                return true;
-            }
+            return true;
         }
         false
     })
@@ -1141,12 +1138,11 @@ pub fn in_nested_block<'a>(mut parents: impl Iterator<Item = &'a Stmt>) -> bool 
 pub fn is_unpacking_assignment(parent: &Stmt, child: &Expr) -> bool {
     match parent {
         Stmt::With(ast::StmtWith { items, .. }) => items.iter().any(|item| {
-            if let Some(optional_vars) = &item.optional_vars {
-                if optional_vars.is_tuple_expr() {
-                    if any_over_expr(optional_vars, &|expr| expr == child) {
-                        return true;
-                    }
-                }
+            if let Some(optional_vars) = &item.optional_vars
+                && optional_vars.is_tuple_expr()
+                && any_over_expr(optional_vars, &|expr| expr == child)
+            {
+                return true;
             }
             false
         }),
