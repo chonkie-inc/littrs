@@ -3958,3 +3958,169 @@ content
         .unwrap();
     assert_eq!(result, PyValue::Str("a,b,c".to_string()));
 }
+
+// ---------------------------------------------------------------------------
+// with statement tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_with_statement_file_read() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("hello.txt"), "hello world").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), false);
+
+    let result = sandbox
+        .run(
+            r#"
+with open("hello.txt") as f:
+    content = f.read()
+content
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Str("hello world".to_string()));
+}
+
+#[test]
+fn test_with_statement_file_write() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("out.txt"), "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+with open("out.txt", "w") as f:
+    f.write("written by with")
+"#,
+        )
+        .unwrap();
+
+    // __exit__ should have flushed + closed, so host file is updated.
+    let host_content = std::fs::read_to_string(dir.path().join("out.txt")).unwrap();
+    assert_eq!(host_content, "written by with");
+}
+
+#[test]
+fn test_with_statement_exception_calls_exit() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("out.txt"), "").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    // Write something, then raise. __exit__ should still flush.
+    let err = sandbox
+        .run(
+            r#"
+with open("out.txt", "w") as f:
+    f.write("before error")
+    raise ValueError("boom")
+"#,
+        )
+        .unwrap_err();
+    assert!(err.to_string().contains("ValueError"));
+
+    let host_content = std::fs::read_to_string(dir.path().join("out.txt")).unwrap();
+    assert_eq!(host_content, "before error");
+}
+
+#[test]
+fn test_with_statement_no_as_clause() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("noas.txt"), "content").unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), false);
+
+    // with open(...): pass — no `as` clause, should not error.
+    let result = sandbox
+        .run(
+            r#"
+with open("noas.txt"):
+    x = 42
+x
+"#,
+        )
+        .unwrap();
+    assert_eq!(result, PyValue::Int(42));
+}
+
+// ---------------------------------------------------------------------------
+// File creation in dir mounts tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_mount_dir_create_new_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+f = open("new.txt", "w")
+f.write("created")
+f.close()
+"#,
+        )
+        .unwrap();
+
+    let host_content = std::fs::read_to_string(dir.path().join("new.txt")).unwrap();
+    assert_eq!(host_content, "created");
+}
+
+#[test]
+fn test_create_file_readonly_dir_denied() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), false);
+
+    let err = sandbox.run(r#"open("new.txt", "w")"#).unwrap_err();
+    assert!(
+        err.to_string().contains("FileNotFoundError"),
+        "Expected FileNotFoundError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_create_file_read_mode_fails() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    let err = sandbox.run(r#"open("nonexistent.txt")"#).unwrap_err();
+    assert!(
+        err.to_string().contains("FileNotFoundError"),
+        "Expected FileNotFoundError, got: {}",
+        err
+    );
+}
+
+#[test]
+fn test_with_statement_creates_new_file() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let mut sandbox = Sandbox::new();
+    sandbox.mount(".", dir.path().to_str().unwrap(), true);
+
+    sandbox
+        .run(
+            r#"
+with open("brand_new.txt", "w") as f:
+    f.write("hello from with")
+"#,
+        )
+        .unwrap();
+
+    let host_content = std::fs::read_to_string(dir.path().join("brand_new.txt")).unwrap();
+    assert_eq!(host_content, "hello from with");
+}

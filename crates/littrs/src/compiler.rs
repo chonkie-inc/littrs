@@ -48,6 +48,8 @@ pub struct Compiler {
     loop_stack: Vec<LoopContext>,
     /// Counter for generating unique comprehension temp variable names.
     comp_counter: usize,
+    /// Counter for generating unique `with` statement temp variable names.
+    with_counter: usize,
 }
 
 impl Compiler {
@@ -63,6 +65,7 @@ impl Compiler {
             code: CodeObject::new(source.to_string()),
             loop_stack: Vec::new(),
             comp_counter: 0,
+            with_counter: 0,
         };
 
         let body_len = module.body.len();
@@ -417,6 +420,16 @@ impl Compiler {
                     let none_idx = self.add_const(PyValue::None);
                     self.emit(Op::LoadConst(none_idx), span);
                 }
+            }
+
+            Stmt::With(with_stmt) => {
+                let span = self.stmt_span(stmt);
+                if with_stmt.is_async {
+                    return Err(Error::Unsupported(
+                        "async with is not supported".to_string(),
+                    ));
+                }
+                self.compile_with(&with_stmt.items, &with_stmt.body, span, is_last)?;
             }
 
             _ => {
@@ -1503,6 +1516,7 @@ impl Compiler {
             code: CodeObject::new(self.code.source.clone()),
             loop_stack: Vec::new(),
             comp_counter: self.comp_counter,
+            with_counter: self.with_counter,
         };
 
         let body_len = func_def.body.len();
@@ -1530,6 +1544,7 @@ impl Compiler {
 
         // Propagate the comprehension counter
         self.comp_counter = sub_compiler.comp_counter;
+        self.with_counter = sub_compiler.with_counter;
 
         let func_idx = self.code.functions.len() as u32;
         self.code.functions.push(FunctionDef {
@@ -1583,6 +1598,7 @@ impl Compiler {
             code: CodeObject::new(self.code.source.clone()),
             loop_stack: Vec::new(),
             comp_counter: self.comp_counter,
+            with_counter: self.with_counter,
         };
 
         sub_compiler.compile_expr(&lambda.body)?;
@@ -1590,6 +1606,7 @@ impl Compiler {
 
         // Propagate the comprehension counter
         self.comp_counter = sub_compiler.comp_counter;
+        self.with_counter = sub_compiler.with_counter;
 
         let func_idx = self.code.functions.len() as u32;
         self.code.functions.push(FunctionDef {
@@ -1603,6 +1620,100 @@ impl Compiler {
 
         // Leave the function value on the stack (no StoreName for lambdas)
         self.emit(Op::MakeFunction(func_idx), span);
+
+        Ok(())
+    }
+
+    /// Compile a `with` statement.
+    ///
+    /// Desugars `with expr as var: body` into:
+    /// ```text
+    /// __with_ctx_N = expr
+    /// var = __with_ctx_N.__enter__()
+    /// try:
+    ///     body
+    /// except:
+    ///     __with_ctx_N.__exit__()
+    ///     raise
+    /// __with_ctx_N.__exit__()
+    /// ```
+    ///
+    /// Multiple items are handled by recursion (first item = outermost).
+    fn compile_with(
+        &mut self,
+        items: &[ast::WithItem],
+        body: &[Stmt],
+        span: Span,
+        is_last: bool,
+    ) -> Result<()> {
+        use crate::bytecode::ExceptionEntry;
+
+        if items.is_empty() {
+            return self.compile_body(body, is_last);
+        }
+
+        let item = &items[0];
+        let rest = &items[1..];
+
+        // Generate a unique temp variable name for the context manager.
+        let temp_name = format!("__with_ctx_{}", self.with_counter);
+        self.with_counter += 1;
+
+        // __with_ctx_N = expr
+        self.compile_expr(&item.context_expr)?;
+        let temp_idx = self.add_name(&temp_name);
+        self.emit(Op::StoreName(temp_idx), span);
+
+        // var = __with_ctx_N.__enter__()
+        self.emit(Op::LoadName(temp_idx), span);
+        let enter_idx = self.add_name("__enter__");
+        self.emit(Op::CallMethod(enter_idx, 0), span);
+        if let Some(ref vars) = item.optional_vars {
+            self.compile_store_target(vars)?;
+        } else {
+            // No `as` clause — discard __enter__() result.
+            self.emit(Op::Pop, span);
+        }
+
+        // try: body (including inner with items)
+        let try_start = self.current_offset();
+
+        if rest.is_empty() {
+            self.compile_body(body, is_last)?;
+        } else {
+            self.compile_with(rest, body, span, is_last)?;
+        }
+
+        // Jump past the exception handler (normal path)
+        let try_end_jump = self.emit_jump(Op::Jump, span);
+        let try_end = self.current_offset();
+
+        // Exception handler: __with_ctx_N.__exit__() then reraise
+        let handler_offset = self.current_offset();
+        self.emit(Op::LoadName(temp_idx), span);
+        let exit_idx = self.add_name("__exit__");
+        self.emit(Op::CallMethod(exit_idx, 0), span);
+        self.emit(Op::Pop, span);
+        self.emit(Op::Reraise, span);
+
+        // Register exception table entry
+        self.code.exception_table.push(ExceptionEntry {
+            start: try_start,
+            end: try_end,
+            handler: handler_offset,
+            var_name: None,
+        });
+
+        // Normal path continues here: __with_ctx_N.__exit__()
+        self.patch_jump(try_end_jump, self.current_offset());
+        self.emit(Op::LoadName(temp_idx), span);
+        self.emit(Op::CallMethod(exit_idx, 0), span);
+        self.emit(Op::Pop, span);
+
+        if is_last {
+            let none_idx = self.add_const(PyValue::None);
+            self.emit(Op::LoadConst(none_idx), span);
+        }
 
         Ok(())
     }

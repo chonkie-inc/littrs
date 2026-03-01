@@ -1526,10 +1526,47 @@ impl Vm {
                         entry
                     }
                     None => {
-                        return Err(Error::Runtime(format!(
-                            "FileNotFoundError: [Errno 2] No such file or directory: '{}'",
-                            path
-                        )));
+                        // If mode is write/append, try to create the file in a writable dir mount.
+                        let write_mode = mode.contains('w') || mode.contains('a');
+                        let created = if write_mode {
+                            self.dir_mounts.iter().find_map(|dm| {
+                                let relative = if dm.virtual_prefix == "." {
+                                    path.clone()
+                                } else {
+                                    path.strip_prefix(&format!("{}/", dm.virtual_prefix))?
+                                        .to_string()
+                                };
+                                if !dm.writable {
+                                    return None;
+                                }
+                                let host_path = format!("{}/{}", dm.host_dir, relative);
+                                // Verify parent directory exists on the host filesystem.
+                                let parent = std::path::Path::new(&host_path).parent()?;
+                                if !parent.exists() {
+                                    return None;
+                                }
+                                Some(MountEntry {
+                                    host_path,
+                                    writable: true,
+                                    content: String::new(),
+                                })
+                            })
+                        } else {
+                            None
+                        };
+
+                        match created {
+                            Some(entry) => {
+                                self.mounts.insert(path.clone(), entry.clone());
+                                entry
+                            }
+                            None => {
+                                return Err(Error::Runtime(format!(
+                                    "FileNotFoundError: [Errno 2] No such file or directory: '{}'",
+                                    path
+                                )));
+                            }
+                        }
                     }
                 }
             }
@@ -1584,7 +1621,7 @@ impl Vm {
             }
         };
 
-        if file.closed {
+        if file.closed && method != "__exit__" {
             return Err(Error::Runtime(
                 "ValueError: I/O operation on closed file".to_string(),
             ));
@@ -1682,6 +1719,29 @@ impl Vm {
                     }
                 }
 
+                Ok(PyValue::None)
+            }
+            "__enter__" => {
+                // Context manager protocol: __enter__ returns self
+                Ok(PyValue::File(handle))
+            }
+            "__exit__" => {
+                // Context manager protocol: flush and close (same as close)
+                let vpath = file.virtual_path.clone();
+                let is_write = file.write_mode;
+                let is_closed = file.closed;
+                if !is_closed {
+                    let file_mut = self.open_files.get_mut(&handle).unwrap();
+                    file_mut.closed = true;
+
+                    if is_write {
+                        let content = file_mut.buffer.clone();
+                        if let Some(mount) = self.mounts.get_mut(&vpath) {
+                            mount.content = content.clone();
+                            let _ = std::fs::write(&mount.host_path, &content);
+                        }
+                    }
+                }
                 Ok(PyValue::None)
             }
             _ => Err(Error::Runtime(format!(
